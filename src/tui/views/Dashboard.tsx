@@ -7,7 +7,7 @@ import type { AppState, AppAction } from "../types";
 import { killSession, getSessionName } from "../../lib/tmux";
 import { removeWorktree, loadSessionMetadata, deleteBranch } from "../../lib/worktree";
 import { getDefaultRepo } from "../../lib/config";
-import { exitTuiAndRun } from "../index";
+import { exitTuiAndAttach } from "../index";
 
 interface DashboardProps {
   state: AppState;
@@ -21,9 +21,9 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   const [confirmKill, setConfirmKill] = useState<string | null>(null);
 
   const handleAttach = useCallback(async (session: Session) => {
-    // Exit TUI and attach to tmux session
+    // Exit TUI, attach to tmux session, return to TUI on detach
     const sessionName = getSessionName(session.name);
-    await exitTuiAndRun("tmux", ["attach", "-t", sessionName]);
+    await exitTuiAndAttach("tmux", ["attach", "-t", sessionName]);
   }, []);
 
   const handleKill = useCallback(async (session: Session) => {

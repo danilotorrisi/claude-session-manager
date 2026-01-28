@@ -10,7 +10,7 @@ import {
   getWorktreePath,
 } from "../../lib/worktree";
 import { getDefaultRepo } from "../../lib/config";
-import { exitTuiAndRun } from "../index";
+import { exitTuiAndAttach } from "../index";
 
 interface SessionDetailProps {
   state: AppState;
@@ -42,7 +42,7 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
   const handleAttach = useCallback(async () => {
     if (!session) return;
     const sessionName = getSessionName(session.name);
-    await exitTuiAndRun("tmux", ["attach", "-t", sessionName]);
+    await exitTuiAndAttach("tmux", ["attach", "-t", sessionName]);
   }, [session]);
 
   const handleKill = useCallback(async () => {
