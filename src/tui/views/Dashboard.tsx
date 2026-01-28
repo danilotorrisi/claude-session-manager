@@ -4,9 +4,10 @@ import { SessionList } from "../components/SessionList";
 import { StatusBar } from "../components/StatusBar";
 import type { Session } from "../../types";
 import type { AppState, AppAction } from "../types";
-import { killSession, attachSession, getSessionName } from "../../lib/tmux";
+import { killSession, getSessionName } from "../../lib/tmux";
 import { removeWorktree, loadSessionMetadata, deleteBranch } from "../../lib/worktree";
 import { getDefaultRepo } from "../../lib/config";
+import { exitTuiAndRun } from "../index";
 
 interface DashboardProps {
   state: AppState;
@@ -20,12 +21,10 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   const [confirmKill, setConfirmKill] = useState<string | null>(null);
 
   const handleAttach = useCallback(async (session: Session) => {
-    // Exit the TUI and attach to the session
-    exit();
-    // Small delay to let ink cleanup
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    await attachSession(session.name);
-  }, [exit]);
+    // Exit TUI and attach to tmux session
+    const sessionName = getSessionName(session.name);
+    await exitTuiAndRun("tmux", ["attach", "-t", sessionName]);
+  }, []);
 
   const handleKill = useCallback(async (session: Session) => {
     if (confirmKill !== session.name) {

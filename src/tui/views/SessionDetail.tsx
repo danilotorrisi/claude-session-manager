@@ -2,7 +2,7 @@ import React, { useState, useCallback, useEffect } from "react";
 import { Box, Text, useInput, useApp } from "ink";
 import Spinner from "ink-spinner";
 import type { AppState, AppAction } from "../types";
-import { killSession, attachSession } from "../../lib/tmux";
+import { killSession, getSessionName } from "../../lib/tmux";
 import {
   removeWorktree,
   loadSessionMetadata,
@@ -10,6 +10,7 @@ import {
   getWorktreePath,
 } from "../../lib/worktree";
 import { getDefaultRepo } from "../../lib/config";
+import { exitTuiAndRun } from "../index";
 
 interface SessionDetailProps {
   state: AppState;
@@ -40,10 +41,9 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
 
   const handleAttach = useCallback(async () => {
     if (!session) return;
-    exit();
-    await new Promise((resolve) => setTimeout(resolve, 100));
-    await attachSession(session.name);
-  }, [session, exit]);
+    const sessionName = getSessionName(session.name);
+    await exitTuiAndRun("tmux", ["attach", "-t", sessionName]);
+  }, [session]);
 
   const handleKill = useCallback(async () => {
     if (!session) return;

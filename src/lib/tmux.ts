@@ -61,8 +61,10 @@ export async function createSession(
 ): Promise<CommandResult> {
   const sessionName = getSessionName(name);
 
-  // Create detached tmux session and start claude in it
-  const command = `tmux new-session -d -s ${sessionName} -c "${workingDir}" "claude"`;
+  // Create detached tmux session with a login shell, then run claude
+  // Using a login shell ensures proper environment (PATH, etc.)
+  // The shell stays open if claude exits, allowing debugging
+  const command = `tmux new-session -d -s ${sessionName} -c "${workingDir}" && tmux send-keys -t ${sessionName} 'claude' Enter`;
   return exec(command, hostName);
 }
 
