@@ -1,0 +1,167 @@
+#!/usr/bin/env bun
+
+import { create } from "./commands/create";
+import { list } from "./commands/list";
+import { attach } from "./commands/attach";
+import { kill } from "./commands/kill";
+import { hosts } from "./commands/hosts";
+import { ensureConfigDir } from "./lib/config";
+
+const HELP = `
+Claude Session Manager (csm)
+Manage Claude Code sessions with tmux and git worktrees
+
+USAGE:
+  csm <command> [options]
+
+COMMANDS:
+  create <name>    Create a new session with git worktree
+  list             List active sessions
+  attach <name>    Attach to an existing session
+  kill <name>      Kill a session and cleanup worktree
+  hosts            List configured remote hosts
+  help             Show this help message
+
+OPTIONS:
+  --repo <path>    Repository path (for create)
+  --host <name>    Remote host name (from config)
+  --delete-branch  Delete the worktree branch (for kill)
+
+EXAMPLES:
+  csm create my-feature --repo ~/my-project
+  csm list
+  csm attach my-feature
+  csm kill my-feature --delete-branch
+
+  # Remote operations
+  csm create my-feature --host dev-server
+  csm list --host dev-server
+  csm attach my-feature --host dev-server
+
+CONFIGURATION:
+  Config file: ~/.config/csm/config.json
+
+  Example config:
+  {
+    "defaultRepo": "/path/to/your/repo",
+    "worktreeBase": "/tmp/csm-worktrees",
+    "hosts": {
+      "dev-server": {
+        "host": "user@192.168.1.100",
+        "defaultRepo": "/home/user/project"
+      }
+    }
+  }
+`;
+
+function parseArgs(args: string[]): {
+  command: string;
+  name?: string;
+  options: Record<string, string | boolean>;
+} {
+  const command = args[0] || "help";
+  const options: Record<string, string | boolean> = {};
+  let name: string | undefined;
+
+  let i = 1;
+  while (i < args.length) {
+    const arg = args[i];
+
+    if (arg.startsWith("--")) {
+      const key = arg.slice(2);
+      const nextArg = args[i + 1];
+
+      // Check if it's a flag (no value) or has a value
+      if (!nextArg || nextArg.startsWith("--")) {
+        options[key] = true;
+        i++;
+      } else {
+        options[key] = nextArg;
+        i += 2;
+      }
+    } else if (!name) {
+      name = arg;
+      i++;
+    } else {
+      i++;
+    }
+  }
+
+  return { command, name, options };
+}
+
+async function main(): Promise<void> {
+  // Ensure config directory exists
+  await ensureConfigDir();
+
+  const args = process.argv.slice(2);
+  const { command, name, options } = parseArgs(args);
+
+  try {
+    switch (command) {
+      case "create":
+        if (!name) {
+          console.error("Error: Session name required");
+          console.error("Usage: csm create <name> [--repo <path>] [--host <remote>]");
+          process.exit(1);
+        }
+        await create(name, {
+          repo: options.repo as string | undefined,
+          host: options.host as string | undefined,
+        });
+        break;
+
+      case "list":
+      case "ls":
+        await list({
+          host: options.host as string | undefined,
+        });
+        break;
+
+      case "attach":
+      case "a":
+        if (!name) {
+          console.error("Error: Session name required");
+          console.error("Usage: csm attach <name> [--host <remote>]");
+          process.exit(1);
+        }
+        await attach(name, {
+          host: options.host as string | undefined,
+        });
+        break;
+
+      case "kill":
+      case "k":
+        if (!name) {
+          console.error("Error: Session name required");
+          console.error("Usage: csm kill <name> [--host <remote>] [--delete-branch]");
+          process.exit(1);
+        }
+        await kill(name, {
+          host: options.host as string | undefined,
+          deleteBranch: options["delete-branch"] === true,
+        });
+        break;
+
+      case "hosts":
+        await hosts();
+        break;
+
+      case "help":
+      case "--help":
+      case "-h":
+        console.log(HELP);
+        break;
+
+      default:
+        console.error(`Unknown command: ${command}`);
+        console.log(HELP);
+        process.exit(1);
+    }
+  } catch (error) {
+    console.error("Error:", error instanceof Error ? error.message : error);
+    process.exit(1);
+  }
+}
+
+main();
