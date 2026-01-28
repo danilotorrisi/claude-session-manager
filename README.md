@@ -1,9 +1,10 @@
 # Claude Session Manager (CSM)
 
-A minimal CLI tool to manage Claude Code sessions across local and remote machines using tmux and git worktrees.
+A CLI tool to manage Claude Code sessions across local and remote machines using tmux and git worktrees. Features both an interactive TUI dashboard and traditional CLI commands.
 
 ## Features
 
+- **Interactive TUI Dashboard**: Full-featured terminal UI for session management
 - **Git Worktree Isolation**: Each session gets its own git worktree, allowing parallel work on different branches
 - **tmux Integration**: Sessions run in detached tmux sessions with Claude Code
 - **Remote Support**: Manage sessions on remote machines via SSH
@@ -12,60 +13,69 @@ A minimal CLI tool to manage Claude Code sessions across local and remote machin
 ## Installation
 
 ```bash
-cd ~/claude-session-manager
+git clone https://github.com/danilotorrisi/claude-session-manager.git
+cd claude-session-manager
 bun install
 bun link
 ```
 
 ## Usage
 
-### Create a Session
+### Interactive TUI (Recommended)
+
+Launch the interactive dashboard:
 
 ```bash
-# Create a local session
-csm create my-feature --repo ~/my-project
+csm
+```
 
-# Create a session on a remote host
+```
+╭──────────────────────────────────────────────────────────────────────────────╮
+│                            Claude Session Manager                            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+ 3 sessions active
+
+    SESSION                  STATUS       WINDOWS    CREATED
+ ›  my-feature               ● attached   1          2h ago
+    bugfix-123               ○ detached   1          1d ago
+    refactor-api             ○ detached   1          3d ago
+
+ [↑↓] navigate  [enter] manage  [a] attach  [c] create  [k] kill  [r] refresh  [q] quit
+```
+
+**TUI Keybindings:**
+
+| Key | Action |
+|-----|--------|
+| `↑` `↓` | Navigate sessions |
+| `Enter` | View session details |
+| `a` | Attach to selected session |
+| `c` | Create new session |
+| `k` | Kill selected session |
+| `r` | Refresh session list |
+| `q` | Quit |
+
+### CLI Commands
+
+For scripting or quick operations:
+
+```bash
+csm create my-feature --repo ~/my-project   # Create session
+csm list                                     # List sessions
+csm attach my-feature                        # Attach to session
+csm kill my-feature --delete-branch          # Kill and cleanup
+csm hosts                                    # List remote hosts
+csm help                                     # Show help
+```
+
+### Remote Operations
+
+```bash
 csm create my-feature --host dev-server
-```
-
-### List Sessions
-
-```bash
-# List local sessions
-csm list
-
-# List sessions on a remote host
 csm list --host dev-server
-```
-
-### Attach to a Session
-
-```bash
-# Attach to a local session
-csm attach my-feature
-
-# Attach to a remote session (via SSH)
 csm attach my-feature --host dev-server
-```
-
-### Kill a Session
-
-```bash
-# Kill session and remove worktree
-csm kill my-feature
-
-# Kill session, remove worktree, and delete the branch
-csm kill my-feature --delete-branch
-
-# Kill a remote session
 csm kill my-feature --host dev-server
-```
-
-### List Configured Hosts
-
-```bash
-csm hosts
 ```
 
 ## Configuration
@@ -119,10 +129,30 @@ Create `~/.config/csm/config.json`:
 - Claude CLI (`claude` command)
 - SSH access for remote operations
 
-## Shortcuts
+## Tech Stack
+
+- **TypeScript** - Language
+- **Bun** - Runtime
+- **React** - UI components
+- **Ink** - Terminal rendering (same as Claude Code)
+
+## CLI Shortcuts
 
 | Command | Alias |
 |---------|-------|
 | `list` | `ls` |
 | `attach` | `a` |
 | `kill` | `k` |
+
+## Development
+
+```bash
+# Run tests
+bun test
+
+# Run with coverage
+bun test --coverage
+
+# Type check
+bun run typecheck
+```

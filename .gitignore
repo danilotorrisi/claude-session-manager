@@ -25,3 +25,4 @@ coverage/
 # Config (user-specific)
 .env
 .env.local
+bun.lock

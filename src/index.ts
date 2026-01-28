@@ -6,15 +6,18 @@ import { attach } from "./commands/attach";
 import { kill } from "./commands/kill";
 import { hosts } from "./commands/hosts";
 import { ensureConfigDir } from "./lib/config";
+import { startTui } from "./tui";
 
 const HELP = `
 Claude Session Manager (csm)
 Manage Claude Code sessions with tmux and git worktrees
 
 USAGE:
-  csm <command> [options]
+  csm                  Launch interactive TUI dashboard
+  csm <command>        Run CLI command
 
 COMMANDS:
+  (none)           Launch interactive TUI dashboard
   create <name>    Create a new session with git worktree
   list             List active sessions
   attach <name>    Attach to an existing session
@@ -28,15 +31,15 @@ OPTIONS:
   --delete-branch  Delete the worktree branch (for kill)
 
 EXAMPLES:
-  csm create my-feature --repo ~/my-project
-  csm list
-  csm attach my-feature
-  csm kill my-feature --delete-branch
+  csm                                    # Launch TUI
+  csm create my-feature --repo ~/proj    # CLI: create session
+  csm list                               # CLI: list sessions
+  csm attach my-feature                  # CLI: attach to session
+  csm kill my-feature --delete-branch    # CLI: kill session
 
   # Remote operations
   csm create my-feature --host dev-server
   csm list --host dev-server
-  csm attach my-feature --host dev-server
 
 CONFIGURATION:
   Config file: ~/.config/csm/config.json
@@ -55,11 +58,11 @@ CONFIGURATION:
 `;
 
 function parseArgs(args: string[]): {
-  command: string;
+  command: string | null;
   name?: string;
   options: Record<string, string | boolean>;
 } {
-  const command = args[0] || "help";
+  const command = args[0] || null;
   const options: Record<string, string | boolean> = {};
   let name: string | undefined;
 
@@ -97,8 +100,18 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const { command, name, options } = parseArgs(args);
 
+  // No command = launch TUI
+  if (!command) {
+    startTui();
+    return;
+  }
+
   try {
     switch (command) {
+      case "tui":
+        startTui();
+        break;
+
       case "create":
         if (!name) {
           console.error("Error: Session name required");
