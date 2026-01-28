@@ -55,6 +55,40 @@ export async function loadSessionMetadata(
   }
 }
 
+export function isWorktreeConflictError(stderr: string): boolean {
+  return (
+    stderr.includes("already registered worktree") ||
+    stderr.includes("already exists") ||
+    stderr.includes("is a missing but already registered")
+  );
+}
+
+export async function cleanupStaleWorktree(
+  sessionName: string,
+  repoPath: string,
+  hostName?: string
+): Promise<CommandResult> {
+  const worktreePath = await getWorktreePath(sessionName);
+
+  // Remove the directory if it exists
+  await exec(`rm -rf "${worktreePath}"`, hostName);
+
+  // Prune stale worktree entries
+  await exec(`cd "${repoPath}" && git worktree prune`, hostName);
+
+  // Also try to remove any lingering csm branches for this session
+  const branchResult = await exec(
+    `cd "${repoPath}" && git branch --list "csm/${sessionName}-*" | head -1`,
+    hostName
+  );
+  if (branchResult.success && branchResult.stdout.trim()) {
+    const branchName = branchResult.stdout.trim().replace(/^\* /, "");
+    await exec(`cd "${repoPath}" && git branch -D "${branchName}"`, hostName);
+  }
+
+  return { success: true, stdout: "Cleanup complete", stderr: "", exitCode: 0 };
+}
+
 export async function createWorktree(
   sessionName: string,
   repoPath: string,
