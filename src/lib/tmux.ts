@@ -1,5 +1,8 @@
-import type { Session, CommandResult } from "../types";
+import type { Session, CommandResult, LinearIssue } from "../types";
 import { exec } from "./ssh";
+import { readClaudeStates, getLastAssistantMessage } from "./claude-state";
+import { getWorktreePath, loadSessionMetadata } from "./worktree";
+import { realpathSync } from "fs";
 
 const SESSION_PREFIX = "csm-";
 
@@ -46,6 +49,38 @@ export async function listSessions(hostName?: string): Promise<Session[]> {
     }
   }
 
+  // Enrich sessions with Claude state and Linear issue
+  const claudeStates = readClaudeStates();
+  for (const session of sessions) {
+    try {
+      const wtPath = await getWorktreePath(session.name);
+      let normalizedPath: string;
+      try {
+        normalizedPath = realpathSync(wtPath);
+      } catch {
+        normalizedPath = wtPath.startsWith("/tmp/") ? "/private" + wtPath : wtPath;
+      }
+      const stateInfo = claudeStates.get(normalizedPath);
+      if (stateInfo) {
+        session.claudeState = stateInfo.state;
+        if (stateInfo.transcriptPath) {
+          session.claudeLastMessage = getLastAssistantMessage(stateInfo.transcriptPath);
+        }
+      }
+    } catch {
+      // Skip state enrichment on error
+    }
+
+    try {
+      const metadata = await loadSessionMetadata(session.name);
+      if (metadata?.linearIssue) {
+        session.linearIssue = metadata.linearIssue;
+      }
+    } catch {
+      // Skip linear issue enrichment on error
+    }
+  }
+
   return sessions;
 }
 
@@ -58,12 +93,44 @@ export async function sessionExists(
   return result.success;
 }
 
+export async function writeClaudeContext(
+  workingDir: string,
+  issue: LinearIssue,
+  hostName?: string
+): Promise<void> {
+  const lines = [
+    `# Linear Issue: ${issue.identifier}`,
+    `**Title:** ${issue.title}`,
+    ...(issue.state ? [`**Status:** ${issue.state}`] : []),
+    `**URL:** ${issue.url}`,
+    "",
+  ];
+
+  if (issue.description) {
+    lines.push("## Description", issue.description, "");
+  }
+
+  lines.push(
+    'When the user refers to "the issue", "the card", "the bug", or "the task", they are referring to this Linear issue.'
+  );
+
+  const content = lines.join("\n");
+  const escaped = content.replace(/'/g, "'\\''");
+  await exec(`echo '${escaped}' > "${workingDir}/CLAUDE.md"`, hostName);
+}
+
 export async function createSession(
   name: string,
   workingDir: string,
-  hostName?: string
+  hostName?: string,
+  linearIssue?: LinearIssue
 ): Promise<CommandResult> {
   const sessionName = getSessionName(name);
+
+  // Write CLAUDE.md with Linear issue context if provided
+  if (linearIssue) {
+    await writeClaudeContext(workingDir, linearIssue, hostName);
+  }
 
   // Create detached tmux session with a login shell, then run claude
   // Using a login shell ensures proper environment (PATH, etc.)
@@ -78,6 +145,13 @@ export async function killSession(
 ): Promise<CommandResult> {
   const sessionName = getSessionName(name);
   return exec(`tmux kill-session -t ${sessionName}`, hostName);
+}
+
+export async function sendToSession(name: string, text: string): Promise<CommandResult> {
+  const sessionName = getSessionName(name);
+  // Escape single quotes for shell safety
+  const escaped = text.replace(/'/g, "'\\''");
+  return exec(`tmux send-keys -t ${sessionName} -l '${escaped}' && tmux send-keys -t ${sessionName} Enter`);
 }
 
 export async function attachSession(name: string): Promise<void> {

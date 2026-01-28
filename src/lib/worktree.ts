@@ -1,5 +1,5 @@
 import { join } from "path";
-import type { CommandResult } from "../types";
+import type { CommandResult, LinearIssue } from "../types";
 import { exec } from "./ssh";
 import { getWorktreeBase } from "./config";
 
@@ -7,6 +7,7 @@ interface SessionMetadata {
   repoPath: string;
   branchName: string;
   createdAt: string;
+  linearIssue?: LinearIssue;
 }
 
 export function generateBranchName(sessionName: string): string {
@@ -28,13 +29,15 @@ export async function saveSessionMetadata(
   sessionName: string,
   repoPath: string,
   branchName: string,
-  hostName?: string
+  hostName?: string,
+  linearIssue?: LinearIssue
 ): Promise<void> {
   const metadataPath = await getMetadataPath(sessionName);
   const metadata: SessionMetadata = {
     repoPath,
     branchName,
     createdAt: new Date().toISOString(),
+    ...(linearIssue && { linearIssue }),
   };
   await exec(`echo '${JSON.stringify(metadata)}' > "${metadataPath}"`, hostName);
 }
@@ -92,7 +95,8 @@ export async function cleanupStaleWorktree(
 export async function createWorktree(
   sessionName: string,
   repoPath: string,
-  hostName?: string
+  hostName?: string,
+  linearIssue?: LinearIssue
 ): Promise<CommandResult> {
   const branchName = generateBranchName(sessionName);
   const worktreePath = await getWorktreePath(sessionName);
@@ -107,7 +111,7 @@ export async function createWorktree(
 
   // Save metadata for later cleanup
   if (result.success) {
-    await saveSessionMetadata(sessionName, repoPath, branchName, hostName);
+    await saveSessionMetadata(sessionName, repoPath, branchName, hostName, linearIssue);
   }
 
   return result;

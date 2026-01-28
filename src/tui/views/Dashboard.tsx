@@ -1,13 +1,16 @@
 import React, { useState, useCallback } from "react";
-import { Box, useInput, useApp } from "ink";
+import { Box, Text, useInput, useApp } from "ink";
+import TextInput from "ink-text-input";
 import { SessionList } from "../components/SessionList";
 import { StatusBar } from "../components/StatusBar";
 import type { Session } from "../../types";
 import type { AppState, AppAction } from "../types";
-import { killSession, getSessionName } from "../../lib/tmux";
+import { killSession, getSessionName, sendToSession } from "../../lib/tmux";
 import { removeWorktree, loadSessionMetadata, deleteBranch } from "../../lib/worktree";
 import { getDefaultRepo } from "../../lib/config";
-import { exitTuiAndAttach } from "../index";
+import { cleanupStateFile } from "../../lib/claude-state";
+import { exitTuiAndAttachAutoReturn } from "../index";
+import { colors } from "../theme";
 
 interface DashboardProps {
   state: AppState;
@@ -19,11 +22,14 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   const { exit } = useApp();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [confirmKill, setConfirmKill] = useState<string | null>(null);
+  const [previewSession, setPreviewSession] = useState<Session | null>(null);
+  const [replyMode, setReplyMode] = useState(false);
+  const [replyText, setReplyText] = useState("");
 
   const handleAttach = useCallback(async (session: Session) => {
-    // Exit TUI, attach to tmux session, return to TUI on detach
-    const sessionName = getSessionName(session.name);
-    await exitTuiAndAttach("tmux", ["attach", "-t", sessionName]);
+    // Exit TUI, attach to tmux session with auto-return when Claude starts working
+    const tmuxSessionName = getSessionName(session.name);
+    await exitTuiAndAttachAutoReturn(session.name, tmuxSessionName);
   }, []);
 
   const handleKill = useCallback(async (session: Session) => {
@@ -34,7 +40,6 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
     }
 
     setConfirmKill(null);
-    dispatch({ type: "SET_LOADING", loading: true });
 
     try {
       // Load metadata for cleanup
@@ -52,6 +57,9 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
         }
       }
 
+      // Clean up Claude state file
+      cleanupStateFile(session.name);
+
       dispatch({ type: "SET_MESSAGE", message: `Session "${session.name}" killed` });
       await onRefresh();
     } catch (error) {
@@ -62,32 +70,77 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
     }
   }, [confirmKill, dispatch, onRefresh]);
 
-  const handleSelectSession = useCallback((session: Session) => {
+  const handleInfo = useCallback((session: Session) => {
     dispatch({ type: "SELECT_SESSION", session });
     dispatch({ type: "SET_VIEW", view: "detail" });
   }, [dispatch]);
 
-  useInput((input, key) => {
+  const handlePreview = useCallback((session: Session) => {
+    setPreviewSession((prev) => {
+      if (prev?.name === session.name) {
+        setReplyMode(false);
+        setReplyText("");
+        return null;
+      }
+      return session;
+    });
+  }, []);
+
+  const handleReplySubmit = useCallback(async (text: string) => {
+    if (!previewSession || !text.trim()) return;
+    try {
+      await sendToSession(previewSession.name, text.trim());
+      dispatch({ type: "SET_MESSAGE", message: `Sent reply to "${previewSession.name}"` });
+    } catch {
+      dispatch({ type: "SET_ERROR", error: "Failed to send reply" });
+    }
+    setReplyText("");
+    setPreviewSession(null);
+    // Delay re-enabling input so the Enter keystroke doesn't propagate
+    // to SessionList's onActivate
+    setTimeout(() => setReplyMode(false), 50);
+  }, [previewSession, dispatch]);
+
+  // Esc handling always active (to exit reply mode)
+  useInput((_input, key) => {
+    if (key.escape) {
+      setReplyMode(false);
+      setReplyText("");
+      setPreviewSession(null);
+      setConfirmKill(null);
+      dispatch({ type: "CLEAR_MESSAGE" });
+    }
+  }, { isActive: replyMode });
+
+  // All other keybindings disabled during reply mode
+  useInput((input, _key) => {
     if (input === "q") {
       exit();
     } else if (input === "c") {
       dispatch({ type: "SET_VIEW", view: "create" });
+    } else if (input === "r" && previewSession) {
+      setReplyMode(true);
+      setReplyText("");
     } else if (input === "r") {
       onRefresh();
     } else if (input === "a" && state.sessions[selectedIndex]) {
       handleAttach(state.sessions[selectedIndex]);
     } else if (input === "k" && state.sessions[selectedIndex]) {
       handleKill(state.sessions[selectedIndex]);
-    } else if (key.escape) {
+    } else if (_key.escape) {
+      setPreviewSession(null);
       setConfirmKill(null);
       dispatch({ type: "CLEAR_MESSAGE" });
     }
-  });
+  }, { isActive: !replyMode });
 
   // Reset confirm state when selection changes
   const handleSelect = (index: number) => {
     if (index !== selectedIndex) {
       setConfirmKill(null);
+      setPreviewSession(null);
+      setReplyMode(false);
+      setReplyText("");
     }
     setSelectedIndex(index);
   };
@@ -95,7 +148,6 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   return (
     <Box flexDirection="column">
       <StatusBar
-        loading={state.loading}
         error={state.error}
         message={state.message}
         sessionCount={state.sessions.length}
@@ -107,9 +159,49 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       <SessionList
         sessions={state.sessions}
         selectedIndex={selectedIndex}
+        inputActive={!replyMode}
         onSelect={handleSelect}
-        onActivate={handleSelectSession}
+        onActivate={handleAttach}
+        onPreview={handlePreview}
+        onInfo={handleInfo}
       />
+      {previewSession?.claudeLastMessage && (
+        <Box
+          flexDirection="column"
+          borderStyle="round"
+          borderColor={colors.cardBorder}
+          paddingX={2}
+          paddingY={0}
+          marginX={1}
+        >
+          <Box>
+            <Text color={colors.muted} bold>{previewSession.name}</Text>
+            <Text color={colors.muted}>{" — last message:"}</Text>
+          </Box>
+          <Text color={colors.text} wrap="wrap">{previewSession.claudeLastMessage}</Text>
+          {!replyMode && (
+            <Box marginTop={1}>
+              <Text color={colors.muted} dimColor>Press [r] to reply</Text>
+            </Box>
+          )}
+        </Box>
+      )}
+      {previewSession && !previewSession.claudeLastMessage && (
+        <Box paddingX={2}>
+          <Text color={colors.muted} dimColor>No last message available for {previewSession.name}</Text>
+        </Box>
+      )}
+      {replyMode && previewSession && (
+        <Box marginX={1} paddingX={2} paddingY={0}>
+          <Text color={colors.primary} bold>{"› "}</Text>
+          <TextInput
+            value={replyText}
+            onChange={setReplyText}
+            onSubmit={handleReplySubmit}
+            placeholder="Type a reply and press Enter..."
+          />
+        </Box>
+      )}
     </Box>
   );
 }

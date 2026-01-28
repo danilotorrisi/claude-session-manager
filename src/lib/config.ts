@@ -2,6 +2,12 @@ import { homedir } from "os";
 import { join } from "path";
 import type { Config, HostConfig } from "../types";
 
+export function expandTilde(filepath: string): string {
+  if (filepath === "~") return homedir();
+  if (filepath.startsWith("~/")) return join(homedir(), filepath.slice(2));
+  return filepath;
+}
+
 const CONFIG_DIR = join(homedir(), ".config", "csm");
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
 
@@ -41,14 +47,20 @@ export async function getDefaultRepo(hostName?: string): Promise<string | undefi
   const config = await loadConfig();
   if (hostName) {
     const host = config.hosts[hostName];
-    return host?.defaultRepo || config.defaultRepo;
+    const repo = host?.defaultRepo || config.defaultRepo;
+    return repo ? expandTilde(repo) : repo;
   }
-  return config.defaultRepo;
+  return config.defaultRepo ? expandTilde(config.defaultRepo) : config.defaultRepo;
 }
 
 export async function getWorktreeBase(): Promise<string> {
   const config = await loadConfig();
-  return config.worktreeBase;
+  return expandTilde(config.worktreeBase);
+}
+
+export async function getLinearApiKey(): Promise<string | undefined> {
+  const config = await loadConfig();
+  return config.linearApiKey;
 }
 
 export { CONFIG_DIR, CONFIG_FILE };

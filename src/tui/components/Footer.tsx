@@ -1,6 +1,7 @@
 import React from "react";
 import { Box, Text } from "ink";
 import type { View } from "../types";
+import { colors } from "../theme";
 
 interface FooterProps {
   view: View;
@@ -38,12 +39,15 @@ export function Footer({ view }: FooterProps) {
   const hints = keyHints[view];
 
   return (
-    <Box marginTop={1} paddingX={1}>
+    <Box marginTop={1} paddingX={1} paddingY={0}>
       {hints.map((hint, index) => (
-        <Box key={`${hint.key}-${index}`} marginRight={2}>
-          <Text color="yellow">[{hint.key}]</Text>
-          <Text color="gray"> {hint.label}</Text>
-        </Box>
+        <React.Fragment key={`${hint.key}-${index}`}>
+          {index > 0 && <Text color={colors.separator}> · </Text>}
+          <Text backgroundColor={colors.primary} color={colors.textBright} bold>
+            {` ${hint.key} `}
+          </Text>
+          <Text color={colors.muted}> {hint.label}</Text>
+        </React.Fragment>
       ))}
     </Box>
   );

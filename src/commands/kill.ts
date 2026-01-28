@@ -7,6 +7,7 @@ import {
   worktreeExists,
   loadSessionMetadata,
 } from "../lib/worktree";
+import { cleanupStateFile } from "../lib/claude-state";
 
 export async function kill(name: string, options: KillOptions): Promise<void> {
   const { host, deleteBranch: shouldDeleteBranch } = options;
@@ -55,6 +56,9 @@ export async function kill(name: string, options: KillOptions): Promise<void> {
       console.error(`Warning: Could not delete branch: ${deleteBranchResult.stderr}`);
     }
   }
+
+  // Clean up Claude state file
+  cleanupStateFile(name);
 
   console.log(`\nSession '${name}' killed successfully!`);
 }

@@ -1,3 +1,13 @@
+export interface LinearIssue {
+  id: string;           // Linear UUID
+  identifier: string;   // e.g. "ENG-123"
+  title: string;
+  url: string;
+  description?: string;
+  state?: string;       // e.g. "In Progress"
+  priority?: number;
+}
+
 export interface HostConfig {
   host: string;
   defaultRepo?: string;
@@ -7,6 +17,7 @@ export interface Config {
   defaultRepo?: string;
   worktreeBase: string;
   hosts: Record<string, HostConfig>;
+  linearApiKey?: string;
 }
 
 export interface Session {
@@ -17,6 +28,9 @@ export interface Session {
   created: string;
   worktreePath?: string;
   title?: string; // Claude Code session title (from tmux pane_title)
+  claudeState?: "idle" | "working" | "waiting_for_input";
+  claudeLastMessage?: string;
+  linearIssue?: LinearIssue;
 }
 
 export interface CommandResult {

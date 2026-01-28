@@ -10,7 +10,9 @@ import {
   getWorktreePath,
 } from "../../lib/worktree";
 import { getDefaultRepo } from "../../lib/config";
-import { exitTuiAndAttach } from "../index";
+import { cleanupStateFile } from "../../lib/claude-state";
+import { exitTuiAndAttachAutoReturn } from "../index";
+import { colors } from "../theme";
 
 interface SessionDetailProps {
   state: AppState;
@@ -41,8 +43,8 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
 
   const handleAttach = useCallback(async () => {
     if (!session) return;
-    const sessionName = getSessionName(session.name);
-    await exitTuiAndAttach("tmux", ["attach", "-t", sessionName]);
+    const tmuxSessionName = getSessionName(session.name);
+    await exitTuiAndAttachAutoReturn(session.name, tmuxSessionName);
   }, [session]);
 
   const handleKill = useCallback(async () => {
@@ -66,6 +68,9 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
           await deleteBranch(metadata.branchName, repoPath);
         }
       }
+
+      // Clean up Claude state file
+      cleanupStateFile(session.name);
 
       dispatch({ type: "SET_MESSAGE", message: `Session "${session.name}" killed` });
       dispatch({ type: "SELECT_SESSION", session: null });
@@ -100,7 +105,7 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
   if (!session) {
     return (
       <Box paddingX={2}>
-        <Text color="red">No session selected</Text>
+        <Text color={colors.danger}>No session selected</Text>
       </Box>
     );
   }
@@ -109,7 +114,7 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1}>
         <Box>
-          <Text color="cyan">
+          <Text color={colors.text}>
             <Spinner type="dots" />
           </Text>
           <Text> Processing...</Text>
@@ -118,110 +123,161 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
     );
   }
 
-  const statusColor = session.attached ? "green" : "yellow";
+  const statusColor = session.attached ? colors.success : colors.warning;
   const statusIcon = session.attached ? "●" : "○";
 
   return (
-    <Box flexDirection="column" paddingX={2} paddingY={1}>
+    <Box flexDirection="column" paddingX={1} paddingY={1}>
+      {/* Session header */}
       <Box marginBottom={1}>
-        <Text bold color="cyan">
-          Session: {session.name}
+        <Text backgroundColor={colors.accent} color={colors.textBright} bold>
+          {" ◆ "}{session.name}{" "}
         </Text>
       </Box>
 
       {confirmKill && (
         <Box marginBottom={1} paddingX={1} paddingY={0}>
-          <Text backgroundColor="red" color="white" bold>
+          <Text backgroundColor={colors.danger} color={colors.textBright} bold>
             {" "}
             Press 'k' again to confirm kill, [Esc] to cancel{" "}
           </Text>
         </Box>
       )}
 
-      <Box flexDirection="column" paddingX={1}>
-        {/* Title (Claude Code session title) */}
+      {/* Detail card */}
+      <Box
+        flexDirection="column"
+        borderStyle="round"
+        borderColor={colors.cardBorder}
+        paddingX={2}
+        paddingY={1}
+      >
+        {/* Info section */}
+        <Box marginBottom={1}>
+          <Text bold backgroundColor={colors.primary} color={colors.textBright}>
+            {" Info "}
+          </Text>
+        </Box>
+
         {session.title && (
           <Box marginBottom={0}>
             <Box width={16}>
-              <Text color="gray">Title:</Text>
+              <Text color={colors.muted}>Title:</Text>
             </Box>
-            <Text color="magenta" bold>{session.title}</Text>
+            <Text backgroundColor={colors.accent} color={colors.textBright} bold>{` ${session.title} `}</Text>
           </Box>
         )}
 
-        {/* Status */}
+        {session.claudeLastMessage && (
+          <Box marginBottom={0}>
+            <Box width={16}>
+              <Text color={colors.muted}>Last Message:</Text>
+            </Box>
+            <Text color={colors.text}>{session.claudeLastMessage}</Text>
+          </Box>
+        )}
+
         <Box marginBottom={0}>
           <Box width={16}>
-            <Text color="gray">Status:</Text>
+            <Text color={colors.muted}>Status:</Text>
           </Box>
           <Text color={statusColor}>
             {statusIcon} {session.attached ? "attached" : "detached"}
           </Text>
         </Box>
 
-        {/* Windows */}
         <Box marginBottom={0}>
           <Box width={16}>
-            <Text color="gray">Windows:</Text>
+            <Text color={colors.muted}>Claude State:</Text>
+          </Box>
+          {session.claudeState === "working" ? (
+            <Text color={colors.warning}>{"◎ working"}</Text>
+          ) : session.claudeState === "waiting_for_input" ? (
+            <Text color={colors.danger} bold>{"◈ waiting for input"}</Text>
+          ) : session.claudeState === "idle" ? (
+            <Text color={colors.muted} dimColor>{"◇ idle"}</Text>
+          ) : (
+            <Text color={colors.mutedDark} dimColor>{"-"}</Text>
+          )}
+        </Box>
+
+        <Box marginBottom={0}>
+          <Box width={16}>
+            <Text color={colors.muted}>Windows:</Text>
           </Box>
           <Text>{session.windows}</Text>
         </Box>
 
-        {/* Created */}
         <Box marginBottom={0}>
           <Box width={16}>
-            <Text color="gray">Created:</Text>
+            <Text color={colors.muted}>Created:</Text>
           </Box>
           <Text>{new Date(session.created).toLocaleString()}</Text>
         </Box>
 
-        {/* tmux session name */}
-        <Box marginBottom={0}>
-          <Box width={16}>
-            <Text color="gray">tmux session:</Text>
-          </Box>
-          <Text color="gray">{session.fullName}</Text>
-        </Box>
-
-        {/* Worktree path */}
-        {worktreePath && (
-          <Box marginBottom={0}>
-            <Box width={16}>
-              <Text color="gray">Worktree:</Text>
+        {/* Paths section */}
+        {(worktreePath || metadata?.repoPath || metadata?.branchName) && (
+          <>
+            <Box marginTop={1} marginBottom={1}>
+              <Text bold backgroundColor={colors.primary} color={colors.textBright}>
+                {" Paths "}
+              </Text>
             </Box>
-            <Text color="gray">{worktreePath}</Text>
-          </Box>
-        )}
 
-        {/* Branch */}
-        {metadata?.branchName && (
-          <Box marginBottom={0}>
-            <Box width={16}>
-              <Text color="gray">Branch:</Text>
+            <Box marginBottom={0}>
+              <Box width={16}>
+                <Text color={colors.muted}>tmux session:</Text>
+              </Box>
+              <Text color={colors.muted}>{session.fullName}</Text>
             </Box>
-            <Text color="magenta">{metadata.branchName}</Text>
-          </Box>
-        )}
 
-        {/* Repository */}
-        {metadata?.repoPath && (
-          <Box marginBottom={0}>
-            <Box width={16}>
-              <Text color="gray">Repository:</Text>
-            </Box>
-            <Text color="gray">{metadata.repoPath}</Text>
-          </Box>
+            {worktreePath && (
+              <Box marginBottom={0}>
+                <Box width={16}>
+                  <Text color={colors.muted}>Worktree:</Text>
+                </Box>
+                <Text color={colors.muted}>{worktreePath}</Text>
+              </Box>
+            )}
+
+            {metadata?.branchName && (
+              <Box marginBottom={0}>
+                <Box width={16}>
+                  <Text color={colors.muted}>Branch:</Text>
+                </Box>
+                <Text backgroundColor={colors.accent} color={colors.textBright}>{` ${metadata.branchName} `}</Text>
+              </Box>
+            )}
+
+            {metadata?.repoPath && (
+              <Box marginBottom={0}>
+                <Box width={16}>
+                  <Text color={colors.muted}>Repository:</Text>
+                </Box>
+                <Text color={colors.muted}>{metadata.repoPath}</Text>
+              </Box>
+            )}
+          </>
         )}
       </Box>
 
-      <Box marginTop={2} flexDirection="column">
-        <Text bold>Actions:</Text>
-        <Box marginTop={1}>
-          <Box marginRight={3}>
-            <Text color="green">[a] Attach</Text>
+      {/* Actions section */}
+      <Box marginTop={1} flexDirection="column">
+        <Box marginBottom={1}>
+          <Text bold backgroundColor={colors.primary} color={colors.textBright}>
+            {" Actions "}
+          </Text>
+        </Box>
+        <Box>
+          <Box marginRight={2}>
+            <Text color={colors.buttonBg} backgroundColor={colors.success} bold>
+              {" "}a Attach{" "}
+            </Text>
           </Box>
           <Box>
-            <Text color="red">[k] Kill</Text>
+            <Text color={colors.buttonBg} backgroundColor={colors.danger} bold>
+              {" "}k Kill{" "}
+            </Text>
           </Box>
         </Box>
       </Box>

@@ -16,12 +16,10 @@ describe("Header component", () => {
     expect(lastFrame()).toContain("Custom Title");
   });
 
-  test("renders with border", () => {
+  test("renders with diamond ornaments", () => {
     const { lastFrame } = render(<Header />);
     const frame = lastFrame();
 
-    // Check for round border characters
-    expect(frame).toContain("╭");
-    expect(frame).toContain("╰");
+    expect(frame).toContain("◆");
   });
 });

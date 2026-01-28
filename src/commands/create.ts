@@ -1,5 +1,5 @@
 import type { CreateOptions } from "../types";
-import { getDefaultRepo } from "../lib/config";
+import { getDefaultRepo, expandTilde } from "../lib/config";
 import { sessionExists, createSession } from "../lib/tmux";
 import {
   createWorktree,
@@ -40,7 +40,7 @@ export async function create(name: string, options: CreateOptions): Promise<void
   }
 
   // Get repository path
-  const repoPath = repo || (await getDefaultRepo(host));
+  const repoPath = (repo ? expandTilde(repo) : null) || (await getDefaultRepo(host));
   if (!repoPath) {
     console.error("Error: No repository specified. Use --repo or set defaultRepo in config");
     process.exit(1);

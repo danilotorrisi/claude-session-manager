@@ -35,11 +35,10 @@ describe("Footer component", () => {
     expect(frame).toContain("quit");
   });
 
-  test("shows key hints in brackets", () => {
+  test("shows key hints with separator dots", () => {
     const { lastFrame } = render(<Footer view="dashboard" />);
     const frame = lastFrame();
 
-    expect(frame).toContain("[");
-    expect(frame).toContain("]");
+    expect(frame).toContain("·");
   });
 });

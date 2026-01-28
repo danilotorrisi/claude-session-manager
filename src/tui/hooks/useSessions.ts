@@ -4,7 +4,6 @@ import type { AppAction } from "../types";
 
 export function useSessions(dispatch: React.Dispatch<AppAction>) {
   const refresh = useCallback(async () => {
-    dispatch({ type: "SET_LOADING", loading: true });
     try {
       const sessions = await listSessions();
       dispatch({ type: "SET_SESSIONS", sessions });
@@ -19,8 +18,8 @@ export function useSessions(dispatch: React.Dispatch<AppAction>) {
   useEffect(() => {
     refresh();
 
-    // Auto-refresh every 5 seconds
-    const interval = setInterval(refresh, 5000);
+    // Auto-refresh every second
+    const interval = setInterval(refresh, 1000);
     return () => clearInterval(interval);
   }, [refresh]);
 

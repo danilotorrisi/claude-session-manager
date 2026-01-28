@@ -1,8 +1,9 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Box, Text, useInput } from "ink";
 import TextInput from "ink-text-input";
 import Spinner from "ink-spinner";
 import type { AppState, AppAction } from "../types";
+import type { LinearIssue } from "../../types";
 import { sessionExists, createSession } from "../../lib/tmux";
 import {
   createWorktree,
@@ -10,7 +11,9 @@ import {
   isWorktreeConflictError,
   cleanupStaleWorktree,
 } from "../../lib/worktree";
-import { getDefaultRepo } from "../../lib/config";
+import { getDefaultRepo, getLinearApiKey, expandTilde } from "../../lib/config";
+import { searchIssues, listMyIssues } from "../../lib/linear";
+import { colors } from "../theme";
 
 interface CreateSessionProps {
   state: AppState;
@@ -18,7 +21,7 @@ interface CreateSessionProps {
   onRefresh: () => Promise<void>;
 }
 
-type Field = "name" | "repo" | "host";
+type Field = "name" | "linear" | "repo" | "host";
 type Status = "input" | "creating" | "confirm-cleanup" | "cleaning";
 
 export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps) {
@@ -31,10 +34,61 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
   const [defaultRepo, setDefaultRepo] = useState<string | null>(null);
   const [pendingRepoPath, setPendingRepoPath] = useState<string | null>(null);
 
-  // Load default repo on mount
-  React.useEffect(() => {
+  // Linear issue state
+  const [linearApiKey, setLinearApiKey] = useState<string | null>(null);
+  const [linearQuery, setLinearQuery] = useState("");
+  const [linearResults, setLinearResults] = useState<LinearIssue[]>([]);
+  const [linearSelectedIdx, setLinearSelectedIdx] = useState(0);
+  const [selectedIssue, setSelectedIssue] = useState<LinearIssue | null>(null);
+  const [linearSearching, setLinearSearching] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Load default repo and Linear API key on mount
+  useEffect(() => {
     getDefaultRepo().then((r) => setDefaultRepo(r || null));
+    getLinearApiKey().then((key) => {
+      setLinearApiKey(key || null);
+      if (key) setActiveField("linear");
+    });
   }, []);
+
+  // Debounced Linear search
+  useEffect(() => {
+    if (activeField !== "linear" || !linearApiKey || !linearQuery.trim()) {
+      setLinearResults([]);
+      return;
+    }
+
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    debounceRef.current = setTimeout(async () => {
+      setLinearSearching(true);
+      try {
+        const results = await searchIssues(linearQuery, linearApiKey);
+        setLinearResults(results);
+        setLinearSelectedIdx(0);
+      } catch {
+        setLinearResults([]);
+      } finally {
+        setLinearSearching(false);
+      }
+    }, 300);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [linearQuery, linearApiKey, activeField]);
+
+  const slugifyIssueName = (issue: LinearIssue): string => {
+    const raw = `${issue.identifier}-${issue.title}`;
+    return raw
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 50)
+      .replace(/-$/, "");
+  };
 
   const validateName = (value: string): string | null => {
     if (!value.trim()) return "Session name is required";
@@ -45,8 +99,10 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
   };
 
   const doCreate = useCallback(async (repoPath: string, hostName?: string) => {
+    const issue = selectedIssue || undefined;
+
     // Create worktree
-    const worktreeResult = await createWorktree(name, repoPath, hostName);
+    const worktreeResult = await createWorktree(name, repoPath, hostName, issue);
 
     if (!worktreeResult.success) {
       if (isWorktreeConflictError(worktreeResult.stderr)) {
@@ -59,7 +115,7 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
 
     // Create tmux session
     const worktreePath = await getWorktreePath(name);
-    const sessionResult = await createSession(name, worktreePath, hostName);
+    const sessionResult = await createSession(name, worktreePath, hostName, issue);
     if (!sessionResult.success) {
       throw new Error(sessionResult.stderr || "Failed to create session");
     }
@@ -67,7 +123,7 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
     dispatch({ type: "SET_MESSAGE", message: `Session "${name}" created successfully` });
     dispatch({ type: "SET_VIEW", view: "dashboard" });
     await onRefresh();
-  }, [name, dispatch, onRefresh]);
+  }, [name, selectedIssue, dispatch, onRefresh]);
 
   const handleCreate = useCallback(async () => {
     // Validate
@@ -77,7 +133,7 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
       return;
     }
 
-    const repoPath = repo.trim() || defaultRepo;
+    const repoPath = (repo.trim() ? expandTilde(repo.trim()) : null) || defaultRepo;
     if (!repoPath) {
       setError("Repository path is required (no default configured)");
       return;
@@ -116,6 +172,20 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
     }
   }, [name, host, pendingRepoPath, doCreate]);
 
+  const nextField = (current: Field): Field => {
+    if (current === "linear") return "name";
+    if (current === "name") return "repo";
+    if (current === "repo") return "host";
+    return "host";
+  };
+
+  const prevField = (current: Field): Field => {
+    if (current === "host") return "repo";
+    if (current === "repo") return "name";
+    if (current === "name") return linearApiKey ? "linear" : "name";
+    return "linear";
+  };
+
   useInput((input, key) => {
     if (status === "confirm-cleanup") {
       if (input === "y" || input === "Y") {
@@ -132,16 +202,49 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
 
     if (key.escape) {
       dispatch({ type: "SET_VIEW", view: "dashboard" });
+      return;
+    }
+
+    // Linear field: arrow keys to navigate results, enter to select
+    if (activeField === "linear" && linearResults.length > 0) {
+      if (key.upArrow) {
+        setLinearSelectedIdx(Math.max(0, linearSelectedIdx - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setLinearSelectedIdx(Math.min(linearResults.length - 1, linearSelectedIdx + 1));
+        return;
+      }
+      if (key.return) {
+        const issue = linearResults[linearSelectedIdx];
+        setSelectedIssue(issue);
+        setLinearResults([]);
+        setName(slugifyIssueName(issue));
+        setActiveField("name");
+        return;
+      }
+    }
+
+    // Linear field: Enter on empty query loads assigned issues
+    if (activeField === "linear" && key.return && !linearQuery.trim() && linearResults.length === 0 && linearApiKey) {
+      setLinearSearching(true);
+      listMyIssues(linearApiKey).then((results) => {
+        setLinearResults(results);
+        setLinearSelectedIdx(0);
+      }).catch(() => {
+        setLinearResults([]);
+      }).finally(() => {
+        setLinearSearching(false);
+      });
+      return;
+    }
+
+    if (key.shift && key.tab) {
+      setActiveField(prevField(activeField));
     } else if (key.return && activeField === "host") {
       handleCreate();
-    } else if (key.tab || (key.return && activeField !== "host")) {
-      // Move to next field
-      if (activeField === "name") setActiveField("repo");
-      else if (activeField === "repo") setActiveField("host");
-    } else if (key.shift && key.tab) {
-      // Move to previous field
-      if (activeField === "host") setActiveField("repo");
-      else if (activeField === "repo") setActiveField("name");
+    } else if (key.tab || (key.return && activeField !== "host" && activeField !== "linear")) {
+      setActiveField(nextField(activeField));
     }
   });
 
@@ -149,7 +252,7 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1}>
         <Box>
-          <Text color="cyan">
+          <Text color={colors.text}>
             <Spinner type="dots" />
           </Text>
           <Text> Creating session "{name}"...</Text>
@@ -162,7 +265,7 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1}>
         <Box>
-          <Text color="cyan">
+          <Text color={colors.text}>
             <Spinner type="dots" />
           </Text>
           <Text> Cleaning up and retrying...</Text>
@@ -175,7 +278,7 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1}>
         <Box marginBottom={1}>
-          <Text bold color="yellow">
+          <Text bold color={colors.warning}>
             ⚠ Stale Worktree Detected
           </Text>
         </Box>
@@ -185,100 +288,191 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
           </Text>
         </Box>
         <Box marginBottom={1}>
-          <Text color="gray">
+          <Text color={colors.muted}>
             This can happen if a previous session wasn't cleaned up properly.
           </Text>
         </Box>
         <Box marginTop={1}>
           <Text>Clean up and retry? </Text>
-          <Text color="green">[y]</Text>
+          <Text color={colors.success} bold>[y]</Text>
           <Text> / </Text>
-          <Text color="red">[n]</Text>
+          <Text color={colors.danger} bold>[n]</Text>
         </Box>
       </Box>
     );
   }
 
+  const fieldBorderColor = (field: Field) =>
+    activeField === field ? colors.primary : colors.cardBorder;
+
   return (
-    <Box flexDirection="column" paddingX={2} paddingY={1}>
+    <Box flexDirection="column" paddingX={1} paddingY={1}>
       <Box marginBottom={1}>
-        <Text bold color="cyan">
-          Create New Session
+        <Text backgroundColor={colors.accent} color={colors.textBright} bold>
+          {" ◆ Create New Session "}
         </Text>
       </Box>
 
       {error && (
-        <Box marginBottom={1}>
-          <Text color="red">✗ {error}</Text>
+        <Box marginBottom={1} paddingX={1}>
+          <Text color={colors.danger}>✗ {error}</Text>
+        </Box>
+      )}
+
+      {/* Linear Issue (optional) */}
+      {linearApiKey && (
+        <Box
+          flexDirection="column"
+          borderStyle="round"
+          borderColor={fieldBorderColor("linear")}
+          paddingX={2}
+          marginBottom={1}
+        >
+          <Box>
+            <Box width={16}>
+              <Text color={activeField === "linear" ? colors.textBright : colors.muted} backgroundColor={activeField === "linear" ? colors.primary : undefined} bold={activeField === "linear"}>
+                Linear Issue:
+              </Text>
+            </Box>
+            <Box>
+              {selectedIssue ? (
+                <Text color={colors.success}>{selectedIssue.identifier}: {selectedIssue.title.slice(0, 40)}</Text>
+              ) : activeField === "linear" ? (
+                <TextInput
+                  value={linearQuery}
+                  onChange={setLinearQuery}
+                  placeholder="Search or Enter to browse..."
+                />
+              ) : (
+                <Text color={colors.muted}>(optional)</Text>
+              )}
+            </Box>
+          </Box>
+          {activeField === "linear" && linearSearching && (
+            <Box marginTop={1}>
+              <Text color={colors.muted}><Spinner type="dots" /> Searching...</Text>
+            </Box>
+          )}
+          {activeField === "linear" && linearResults.length > 0 && (
+            <Box flexDirection="column" marginTop={1}>
+              {linearResults.slice(0, 5).map((issue, idx) => (
+                <Box key={issue.id}>
+                  <Text
+                    color={idx === linearSelectedIdx ? colors.textBright : colors.muted}
+                    backgroundColor={idx === linearSelectedIdx ? colors.primary : undefined}
+                    bold={idx === linearSelectedIdx}
+                  >
+                    {idx === linearSelectedIdx ? "› " : "  "}
+                    {issue.identifier}: {issue.title.slice(0, 50)}
+                    {issue.state ? ` [${issue.state}]` : ""}
+                  </Text>
+                </Box>
+              ))}
+              <Text color={colors.muted} dimColor>↑↓ navigate · Enter select · Tab skip · Esc clear</Text>
+            </Box>
+          )}
+          {activeField === "linear" && selectedIssue && (
+            <Text color={colors.muted} dimColor>Type to search again, or Tab to continue</Text>
+          )}
         </Box>
       )}
 
       {/* Session Name */}
-      <Box marginBottom={1}>
-        <Box width={16}>
-          <Text color={activeField === "name" ? "cyan" : "gray"}>Session Name:</Text>
-        </Box>
+      <Box
+        flexDirection="column"
+        borderStyle="round"
+        borderColor={fieldBorderColor("name")}
+        paddingX={2}
+        marginBottom={1}
+      >
         <Box>
-          {activeField === "name" ? (
-            <TextInput
-              value={name}
-              onChange={setName}
-              placeholder="my-feature"
-            />
-          ) : (
-            <Text>{name || <Text color="gray">my-feature</Text>}</Text>
-          )}
+          <Box width={16}>
+            <Text color={activeField === "name" ? colors.textBright : colors.muted} backgroundColor={activeField === "name" ? colors.primary : undefined} bold={activeField === "name"}>
+              Session Name:
+            </Text>
+          </Box>
+          <Box>
+            {activeField === "name" ? (
+              <TextInput
+                value={name}
+                onChange={setName}
+                placeholder="my-feature"
+              />
+            ) : (
+              <Text>{name || <Text color={colors.muted}>my-feature</Text>}</Text>
+            )}
+          </Box>
         </Box>
       </Box>
 
       {/* Repository Path */}
-      <Box marginBottom={1}>
-        <Box width={16}>
-          <Text color={activeField === "repo" ? "cyan" : "gray"}>Repository:</Text>
-        </Box>
-        <Box flexDirection="column">
-          {activeField === "repo" ? (
-            <TextInput
-              value={repo}
-              onChange={setRepo}
-              placeholder={defaultRepo || "/path/to/repo"}
-            />
-          ) : (
-            <Text>
-              {repo || (
-                <Text color="gray">{defaultRepo || "/path/to/repo"}</Text>
-              )}
+      <Box
+        flexDirection="column"
+        borderStyle="round"
+        borderColor={fieldBorderColor("repo")}
+        paddingX={2}
+        marginBottom={1}
+      >
+        <Box>
+          <Box width={16}>
+            <Text color={activeField === "repo" ? colors.textBright : colors.muted} backgroundColor={activeField === "repo" ? colors.primary : undefined} bold={activeField === "repo"}>
+              Repository:
             </Text>
-          )}
-          {defaultRepo && !repo && (
-            <Text color="gray" dimColor>
-              (default: {defaultRepo})
-            </Text>
-          )}
+          </Box>
+          <Box flexDirection="column">
+            {activeField === "repo" ? (
+              <TextInput
+                value={repo}
+                onChange={setRepo}
+                placeholder={defaultRepo || "/path/to/repo"}
+              />
+            ) : (
+              <Text>
+                {repo || (
+                  <Text color={colors.muted}>{defaultRepo || "/path/to/repo"}</Text>
+                )}
+              </Text>
+            )}
+          </Box>
         </Box>
+        {defaultRepo && !repo && (
+          <Text color={colors.muted} dimColor>
+            default: {defaultRepo}
+          </Text>
+        )}
       </Box>
 
       {/* Host (optional) */}
-      <Box marginBottom={1}>
-        <Box width={16}>
-          <Text color={activeField === "host" ? "cyan" : "gray"}>Host:</Text>
-        </Box>
+      <Box
+        flexDirection="column"
+        borderStyle="round"
+        borderColor={fieldBorderColor("host")}
+        paddingX={2}
+        marginBottom={1}
+      >
         <Box>
-          {activeField === "host" ? (
-            <TextInput
-              value={host}
-              onChange={setHost}
-              placeholder="(local)"
-            />
-          ) : (
-            <Text>{host || <Text color="gray">(local)</Text>}</Text>
-          )}
+          <Box width={16}>
+            <Text color={activeField === "host" ? colors.textBright : colors.muted} backgroundColor={activeField === "host" ? colors.primary : undefined} bold={activeField === "host"}>
+              Host:
+            </Text>
+          </Box>
+          <Box>
+            {activeField === "host" ? (
+              <TextInput
+                value={host}
+                onChange={setHost}
+                placeholder="(local)"
+              />
+            ) : (
+              <Text>{host || <Text color={colors.muted}>(local)</Text>}</Text>
+            )}
+          </Box>
         </Box>
       </Box>
 
-      <Box marginTop={1}>
-        <Text color="gray">
-          Press [Tab] to move between fields, [Enter] on Host to create
+      <Box marginTop={1} paddingX={1}>
+        <Text color={colors.muted}>
+          [Tab] next field · [Shift+Tab] prev · [Enter] on last field to create · [Esc] cancel
         </Text>
       </Box>
     </Box>

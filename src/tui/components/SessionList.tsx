@@ -1,19 +1,26 @@
 import React from "react";
 import { Box, Text, useInput } from "ink";
 import type { Session } from "../../types";
+import { colors } from "../theme";
 
 interface SessionListProps {
   sessions: Session[];
   selectedIndex: number;
+  inputActive?: boolean;
   onSelect: (index: number) => void;
   onActivate: (session: Session) => void;
+  onPreview?: (session: Session) => void;
+  onInfo?: (session: Session) => void;
 }
 
 export function SessionList({
   sessions,
   selectedIndex,
+  inputActive = true,
   onSelect,
   onActivate,
+  onPreview,
+  onInfo,
 }: SessionListProps) {
   useInput((input, key) => {
     if (key.upArrow) {
@@ -22,14 +29,18 @@ export function SessionList({
       onSelect(Math.min(sessions.length - 1, selectedIndex + 1));
     } else if (key.return && sessions[selectedIndex]) {
       onActivate(sessions[selectedIndex]);
+    } else if (input === " " && sessions[selectedIndex] && onPreview) {
+      onPreview(sessions[selectedIndex]);
+    } else if (input === "o" && sessions[selectedIndex] && onInfo) {
+      onInfo(sessions[selectedIndex]);
     }
-  });
+  }, { isActive: inputActive });
 
   if (sessions.length === 0) {
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1}>
-        <Text color="gray">No active sessions</Text>
-        <Text color="gray" dimColor>
+        <Text color={colors.muted}>No active sessions</Text>
+        <Text color={colors.muted} dimColor>
           Press [c] to create a new session
         </Text>
       </Box>
@@ -41,26 +52,26 @@ export function SessionList({
       {/* Header row */}
       <Box marginBottom={1}>
         <Box width={3}>
-          <Text color="gray"> </Text>
+          <Text color={colors.muted}> </Text>
         </Box>
         <Box width={18}>
-          <Text color="gray" bold>
+          <Text color={colors.muted} bold>
             SESSION
           </Text>
         </Box>
-        <Box width={12}>
-          <Text color="gray" bold>
+        <Box width={14}>
+          <Text color={colors.muted} bold>
             STATUS
           </Text>
         </Box>
         <Box width={10}>
-          <Text color="gray" bold>
+          <Text color={colors.muted} bold>
             AGE
           </Text>
         </Box>
         <Box>
-          <Text color="gray" bold>
-            TITLE
+          <Text color={colors.muted} bold>
+            LAST MESSAGE
           </Text>
         </Box>
       </Box>
@@ -68,37 +79,65 @@ export function SessionList({
       {/* Session rows */}
       {sessions.map((session, index) => {
         const isSelected = index === selectedIndex;
-        const statusColor = session.attached ? "green" : "yellow";
-        const statusIcon = session.attached ? "●" : "○";
         const created = formatRelativeTime(session.created);
-        const title = session.title || "-";
+        const displayText = (session.claudeLastMessage?.replace(/\n/g, " ") || session.title || "-");
+
+        // Row background based on claude state
+        const rowBg =
+          session.claudeState === "idle"
+            ? "#1a2e1a"       // dark green tint
+            : session.claudeState === "waiting_for_input"
+            ? "#3b1a1a"       // dark red tint
+            : undefined;      // no background for working / unknown
+
+        const textColor = isSelected ? colors.textBright : colors.text;
 
         return (
-          <Box key={session.fullName}>
+          <Box key={session.fullName} backgroundColor={rowBg}>
             <Box width={3}>
-              <Text color={isSelected ? "cyan" : "gray"}>
-                {isSelected ? "›" : " "}
-              </Text>
+              {isSelected ? (
+                <Text backgroundColor={colors.primary} color={colors.textBright} bold>{"›"}</Text>
+              ) : (
+                <Text backgroundColor={rowBg} color={colors.muted}>{" "}</Text>
+              )}
             </Box>
             <Box width={18}>
               <Text
-                color={isSelected ? "cyan" : "white"}
+                color={isSelected ? colors.textBright : textColor}
                 bold={isSelected}
+                backgroundColor={isSelected ? colors.primary : rowBg}
               >
                 {session.name.slice(0, 16)}
               </Text>
             </Box>
-            <Box width={12}>
-              <Text color={statusColor}>
-                {statusIcon} {session.attached ? "attached" : "detached"}
-              </Text>
+            {session.linearIssue && (
+              <Box width={12}>
+                <Text color={colors.accent} backgroundColor={rowBg}>
+                  [{session.linearIssue.identifier}]
+                </Text>
+              </Box>
+            )}
+            <Box width={14}>
+              {session.claudeState === "working" ? (
+                <Text color={colors.warning} backgroundColor={rowBg}>{"◎ working"}</Text>
+              ) : session.claudeState === "waiting_for_input" ? (
+                <Text color={colors.danger} bold backgroundColor={rowBg}>{"◈ waiting"}</Text>
+              ) : session.claudeState === "idle" ? (
+                <Text color={colors.success} backgroundColor={rowBg}>{"◇ idle"}</Text>
+              ) : (
+                <Text color={colors.mutedDark} dimColor backgroundColor={rowBg}>{"-"}</Text>
+              )}
             </Box>
             <Box width={10}>
-              <Text color="gray">{created}</Text>
+              <Text color={colors.muted} backgroundColor={rowBg}>{created}</Text>
             </Box>
             <Box>
-              <Text color={isSelected ? "magenta" : "gray"} dimColor={!session.title}>
-                {title.slice(0, 30)}
+              <Text
+                color={session.claudeLastMessage ? textColor : session.title ? textColor : colors.mutedDark}
+                dimColor={!session.claudeLastMessage && !session.title}
+                backgroundColor={rowBg}
+              >
+                {displayText.slice(0, 50)}
               </Text>
             </Box>
           </Box>

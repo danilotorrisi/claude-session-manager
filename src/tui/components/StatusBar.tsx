@@ -1,9 +1,8 @@
 import React, { useEffect } from "react";
 import { Box, Text } from "ink";
-import Spinner from "ink-spinner";
+import { colors } from "../theme";
 
 interface StatusBarProps {
-  loading: boolean;
   error: string | null;
   message: string | null;
   sessionCount: number;
@@ -11,7 +10,6 @@ interface StatusBarProps {
 }
 
 export function StatusBar({
-  loading,
   error,
   message,
   sessionCount,
@@ -27,19 +25,12 @@ export function StatusBar({
 
   return (
     <Box paddingX={1} marginBottom={1}>
-      {loading ? (
-        <Box>
-          <Text color="cyan">
-            <Spinner type="dots" />
-          </Text>
-          <Text color="gray"> Loading sessions...</Text>
-        </Box>
-      ) : error ? (
-        <Text color="red">✗ {error}</Text>
+      {error ? (
+        <Text color={colors.danger}>✗ {error}</Text>
       ) : message ? (
-        <Text color="green">✓ {message}</Text>
+        <Text color={colors.success}>✓ {message}</Text>
       ) : (
-        <Text color="gray">
+        <Text color={colors.muted}>
           {sessionCount} session{sessionCount !== 1 ? "s" : ""} active
         </Text>
       )}
