@@ -16,7 +16,7 @@ export function parseSessionName(fullName: string): string | null {
 
 export async function listSessions(hostName?: string): Promise<Session[]> {
   const result = await exec(
-    'tmux list-sessions -F "#{session_name}|#{session_attached}|#{session_windows}|#{session_created}" 2>/dev/null || true',
+    'tmux list-sessions -F "#{session_name}|#{session_attached}|#{session_windows}|#{session_created}|#{pane_title}" 2>/dev/null || true',
     hostName
   );
 
@@ -28,16 +28,20 @@ export async function listSessions(hostName?: string): Promise<Session[]> {
   const lines = result.stdout.split("\n").filter(Boolean);
 
   for (const line of lines) {
-    const [fullName, attached, windows, created] = line.split("|");
+    const [fullName, attached, windows, created, paneTitle] = line.split("|");
     const name = parseSessionName(fullName);
 
     if (name) {
+      // Clean up the pane title (remove leading symbols like ✳)
+      const title = paneTitle?.replace(/^[✳★●○]\s*/, "").trim() || undefined;
+
       sessions.push({
         name,
         fullName,
         attached: attached === "1",
         windows: parseInt(windows, 10),
         created: new Date(parseInt(created, 10) * 1000).toISOString(),
+        title,
       });
     }
   }

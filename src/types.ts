@@ -16,6 +16,7 @@ export interface Session {
   windows: number;
   created: string;
   worktreePath?: string;
+  title?: string; // Claude Code session title (from tmux pane_title)
 }
 
 export interface CommandResult {

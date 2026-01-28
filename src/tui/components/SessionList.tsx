@@ -43,7 +43,7 @@ export function SessionList({
         <Box width={3}>
           <Text color="gray"> </Text>
         </Box>
-        <Box width={24}>
+        <Box width={18}>
           <Text color="gray" bold>
             SESSION
           </Text>
@@ -55,12 +55,12 @@ export function SessionList({
         </Box>
         <Box width={10}>
           <Text color="gray" bold>
-            WINDOWS
+            AGE
           </Text>
         </Box>
         <Box>
           <Text color="gray" bold>
-            CREATED
+            TITLE
           </Text>
         </Box>
       </Box>
@@ -71,6 +71,7 @@ export function SessionList({
         const statusColor = session.attached ? "green" : "yellow";
         const statusIcon = session.attached ? "●" : "○";
         const created = formatRelativeTime(session.created);
+        const title = session.title || "-";
 
         return (
           <Box key={session.fullName}>
@@ -79,12 +80,12 @@ export function SessionList({
                 {isSelected ? "›" : " "}
               </Text>
             </Box>
-            <Box width={24}>
+            <Box width={18}>
               <Text
                 color={isSelected ? "cyan" : "white"}
                 bold={isSelected}
               >
-                {session.name.slice(0, 22)}
+                {session.name.slice(0, 16)}
               </Text>
             </Box>
             <Box width={12}>
@@ -93,10 +94,12 @@ export function SessionList({
               </Text>
             </Box>
             <Box width={10}>
-              <Text color="gray">{session.windows}</Text>
+              <Text color="gray">{created}</Text>
             </Box>
             <Box>
-              <Text color="gray">{created}</Text>
+              <Text color={isSelected ? "magenta" : "gray"} dimColor={!session.title}>
+                {title.slice(0, 30)}
+              </Text>
             </Box>
           </Box>
         );

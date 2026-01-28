@@ -11,6 +11,7 @@ const mockSessions: Session[] = [
     attached: true,
     windows: 2,
     created: new Date(Date.now() - 3600000).toISOString(), // 1 hour ago
+    title: "Add login feature",
   },
   {
     name: "bugfix-123",
@@ -18,6 +19,7 @@ const mockSessions: Session[] = [
     attached: false,
     windows: 1,
     created: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
+    title: "Fix auth bug",
   },
   {
     name: "refactor",
@@ -25,6 +27,7 @@ const mockSessions: Session[] = [
     attached: false,
     windows: 3,
     created: new Date(Date.now() - 604800000).toISOString(), // 1 week ago
+    // No title for this one
   },
 ];
 
@@ -75,8 +78,8 @@ describe("SessionList component", () => {
 
       expect(frame).toContain("SESSION");
       expect(frame).toContain("STATUS");
-      expect(frame).toContain("WINDOWS");
-      expect(frame).toContain("CREATED");
+      expect(frame).toContain("AGE");
+      expect(frame).toContain("TITLE");
     });
 
     test("shows attached status for attached sessions", () => {
@@ -133,7 +136,7 @@ describe("SessionList component", () => {
       expect(frame).toMatch(/\d+[hmd] ago/);
     });
 
-    test("shows window count", () => {
+    test("shows session titles", () => {
       const { lastFrame } = render(
         <SessionList
           sessions={mockSessions}
@@ -144,9 +147,9 @@ describe("SessionList component", () => {
       );
       const frame = lastFrame();
 
-      expect(frame).toContain("2");
-      expect(frame).toContain("1");
-      expect(frame).toContain("3");
+      expect(frame).toContain("Add login feature");
+      expect(frame).toContain("Fix auth bug");
+      expect(frame).toContain("-"); // No title shows as "-"
     });
   });
 

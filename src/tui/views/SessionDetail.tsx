@@ -139,6 +139,16 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
       )}
 
       <Box flexDirection="column" paddingX={1}>
+        {/* Title (Claude Code session title) */}
+        {session.title && (
+          <Box marginBottom={0}>
+            <Box width={16}>
+              <Text color="gray">Title:</Text>
+            </Box>
+            <Text color="magenta" bold>{session.title}</Text>
+          </Box>
+        )}
+
         {/* Status */}
         <Box marginBottom={0}>
           <Box width={16}>
