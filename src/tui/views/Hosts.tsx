@@ -4,129 +4,116 @@ import TextInput from "ink-text-input";
 import type { AppState, AppAction } from "../types";
 import { nextTab } from "../types";
 import type { HostConfig } from "../../types";
-import { addHost, deleteHost, updateHost } from "../../lib/config";
-import { testConnection, installHooks } from "../../lib/ssh";
+import { addHost, updateHost, deleteHost } from "../../lib/config";
+import { installHooks } from "../../lib/ssh";
+import { LOCAL_HOST_KEY } from "../hooks/useHosts";
 import { colors } from "../theme";
 
 interface HostsProps {
   state: AppState;
   dispatch: React.Dispatch<AppAction>;
-  onReloadHosts: () => Promise<void>;
+  onReload: () => Promise<Record<string, HostConfig>>;
+  onCheckHost: (name: string) => Promise<void>;
+  onRefreshStatus: () => Promise<void>;
 }
 
 type Mode = "list" | "create" | "edit";
-type Field = "name" | "host" | "repo";
-const fieldOrder: Field[] = ["name", "host", "repo"];
+type FormField = "name" | "host" | "repo";
 
-export function Hosts({ state, dispatch, onReloadHosts }: HostsProps) {
+export function Hosts({ state, dispatch, onReload, onCheckHost, onRefreshStatus }: HostsProps) {
   const { exit } = useApp();
   const [mode, setMode] = useState<Mode>("list");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   // Form state
-  const [fieldName, setFieldName] = useState("");
-  const [fieldHost, setFieldHost] = useState("");
-  const [fieldRepo, setFieldRepo] = useState("");
-  const [activeField, setActiveField] = useState<Field>("name");
+  const [formName, setFormName] = useState("");
+  const [formHost, setFormHost] = useState("");
+  const [formRepo, setFormRepo] = useState("");
+  const [formField, setFormField] = useState<FormField>("name");
   const [formError, setFormError] = useState<string | null>(null);
-  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState<string | null>(null);
 
-  const hostEntries = Object.entries(state.hosts);
+  const remoteEntries = Object.entries(state.hosts);
+  // Combined list: local host first, then remote hosts
+  const allEntries: { name: string; host: string; defaultRepo?: string; isLocal: boolean }[] = [
+    { name: LOCAL_HOST_KEY, host: "localhost", isLocal: true },
+    ...remoteEntries.map(([name, config]) => ({
+      name,
+      host: config.host,
+      defaultRepo: config.defaultRepo,
+      isLocal: false,
+    })),
+  ];
 
-  const resetForm = () => {
-    setFieldName("");
-    setFieldHost("");
-    setFieldRepo("");
-    setActiveField("name");
+  const resetForm = useCallback(() => {
+    setFormName("");
+    setFormHost("");
+    setFormRepo("");
+    setFormField("name");
     setFormError(null);
-    setEditingKey(null);
-  };
+    setEditingName(null);
+  }, []);
 
-  const nextField = () => {
-    const idx = fieldOrder.indexOf(activeField);
-    setActiveField(fieldOrder[(idx + 1) % fieldOrder.length]);
-  };
-
-  const handleSubmit = useCallback(async () => {
-    const name = fieldName.trim();
-    const host = fieldHost.trim();
-    const repo = fieldRepo.trim();
-
-    if (!name) {
-      setFormError("Name is required");
+  const handleCreate = useCallback(async () => {
+    if (!formName.trim()) {
+      setFormError("Host name is required");
       return;
     }
-    if (!host) {
-      setFormError("Host is required");
+    if (!formHost.trim()) {
+      setFormError("SSH host is required");
       return;
     }
-
-    if (mode === "create" && state.hosts[name]) {
-      setFormError(`Host "${name}" already exists`);
+    if (state.hosts[formName.trim()] && !editingName) {
+      setFormError("Host name already exists");
       return;
     }
+    const config: HostConfig = { host: formHost.trim() };
+    if (formRepo.trim()) config.defaultRepo = formRepo.trim();
 
-    const hostConfig: HostConfig = { host };
-    if (repo) hostConfig.defaultRepo = repo;
-
-    if (mode === "edit" && editingKey && editingKey !== name) {
-      await deleteHost(editingKey);
-    }
-
-    if (mode === "create") {
-      await addHost(name, hostConfig);
+    if (editingName) {
+      if (editingName !== formName.trim()) {
+        await deleteHost(editingName);
+      }
+      await updateHost(formName.trim(), config);
+      dispatch({ type: "SET_MESSAGE", message: `Host "${formName.trim()}" updated` });
     } else {
-      await updateHost(name, hostConfig);
+      await addHost(formName.trim(), config);
+      dispatch({ type: "SET_MESSAGE", message: `Host "${formName.trim()}" created. Installing hooks...` });
     }
 
-    await onReloadHosts();
+    await onReload();
     resetForm();
     setMode("list");
 
-    if (mode === "create") {
-      dispatch({ type: "SET_MESSAGE", message: `Host "${name}" created. Installing hooks...` });
-      const hookResult = await installHooks(name);
+    const hostName = formName.trim();
+    // Check the new/updated host
+    onCheckHost(hostName);
+
+    // Auto-install hooks on new hosts
+    if (!editingName) {
+      const hookResult = await installHooks(hostName);
       dispatch({
         type: "SET_MESSAGE",
         message: hookResult.success
-          ? `Host "${name}" created. ${hookResult.stdout}`
-          : `Host "${name}" created but hook install failed: ${hookResult.stderr}`,
+          ? `Host "${hostName}" created. ${hookResult.stdout}`
+          : `Host "${hostName}" created but hook install failed: ${hookResult.stderr}`,
       });
-    } else {
-      dispatch({ type: "SET_MESSAGE", message: `Host "${name}" updated` });
     }
-  }, [fieldName, fieldHost, fieldRepo, mode, state.hosts, editingKey, dispatch, onReloadHosts]);
+  }, [formName, formHost, formRepo, editingName, state.hosts, dispatch, onReload, onCheckHost, resetForm]);
 
-  const handleDelete = useCallback(
-    async (name: string) => {
-      if (confirmDelete !== name) {
-        setConfirmDelete(name);
-        dispatch({ type: "SET_MESSAGE", message: `Press 'd' again to confirm delete "${name}"` });
-        return;
-      }
-      setConfirmDelete(null);
-      await deleteHost(name);
-      await onReloadHosts();
-      dispatch({ type: "SET_MESSAGE", message: `Host "${name}" deleted` });
-      setSelectedIndex((i) => Math.max(0, Math.min(i, hostEntries.length - 2)));
-    },
-    [confirmDelete, hostEntries.length, dispatch, onReloadHosts]
-  );
-
-  const handleTest = useCallback(
-    async (name: string) => {
-      dispatch({ type: "SET_MESSAGE", message: `Testing connection to "${name}"...` });
-      const result = await testConnection(name);
-      dispatch({
-        type: "SET_MESSAGE",
-        message: result.success
-          ? `Connection to "${name}" succeeded`
-          : `Connection to "${name}" failed: ${result.stderr}`,
-      });
-    },
-    [dispatch]
-  );
+  const handleDelete = useCallback(async (name: string) => {
+    if (confirmDelete !== name) {
+      setConfirmDelete(name);
+      dispatch({ type: "SET_MESSAGE", message: `Press 'd' again to confirm delete "${name}"` });
+      return;
+    }
+    setConfirmDelete(null);
+    await deleteHost(name);
+    await onReload();
+    dispatch({ type: "SET_MESSAGE", message: `Host "${name}" deleted` });
+    setSelectedIndex((i) => Math.max(0, Math.min(i, allEntries.length - 2)));
+  }, [confirmDelete, allEntries.length, dispatch, onReload]);
 
   const handleInstallHooks = useCallback(
     async (name: string) => {
@@ -143,76 +130,108 @@ export function Hosts({ state, dispatch, onReloadHosts }: HostsProps) {
   );
 
   // List mode input
-  useInput(
-    (input, key) => {
-      if (mode !== "list") return;
+  useInput((input, key) => {
+    if (mode !== "list") return;
 
-      if (input === "q") {
-        exit();
-      } else if (key.tab) {
-        dispatch({ type: "SET_TAB", tab: nextTab(state.activeTab) });
-      } else if (input === "c") {
-        resetForm();
-        setMode("create");
-      } else if (input === "e" && hostEntries[selectedIndex]) {
-        const [name, config] = hostEntries[selectedIndex];
-        setFieldName(name);
-        setFieldHost(config.host);
-        setFieldRepo(config.defaultRepo || "");
-        setActiveField("name");
-        setFormError(null);
-        setEditingKey(name);
-        setMode("edit");
-      } else if (input === "d" && hostEntries[selectedIndex]) {
-        handleDelete(hostEntries[selectedIndex][0]);
-      } else if (input === "t" && hostEntries[selectedIndex]) {
-        handleTest(hostEntries[selectedIndex][0]);
-      } else if (input === "i" && hostEntries[selectedIndex]) {
-        handleInstallHooks(hostEntries[selectedIndex][0]);
-      } else if (key.upArrow) {
-        setSelectedIndex((i) => Math.max(0, i - 1));
-        setConfirmDelete(null);
-      } else if (key.downArrow) {
-        setSelectedIndex((i) => Math.min(hostEntries.length - 1, i + 1));
-        setConfirmDelete(null);
-      } else if (key.escape) {
-        setConfirmDelete(null);
-        dispatch({ type: "CLEAR_MESSAGE" });
+    const selected = allEntries[selectedIndex];
+    const isLocalSelected = selected?.isLocal;
+
+    if (input === "q") {
+      exit();
+    } else if (key.tab) {
+      dispatch({ type: "SET_TAB", tab: nextTab(state.activeTab) });
+    } else if (input === "c") {
+      resetForm();
+      setMode("create");
+    } else if (input === "e" && selected && !isLocalSelected) {
+      const config = state.hosts[selected.name];
+      setEditingName(selected.name);
+      setFormName(selected.name);
+      setFormHost(config.host);
+      setFormRepo(config.defaultRepo || "");
+      setFormField("host");
+      setFormError(null);
+      setMode("edit");
+    } else if (input === "d" && selected && !isLocalSelected) {
+      handleDelete(selected.name);
+    } else if (input === "t" && selected) {
+      onCheckHost(selected.name);
+      const label = isLocalSelected ? "local" : selected.name;
+      dispatch({ type: "SET_MESSAGE", message: `Testing ${label}...` });
+    } else if (input === "i" && selected && !isLocalSelected) {
+      handleInstallHooks(selected.name);
+    } else if (input === "r") {
+      onRefreshStatus();
+      dispatch({ type: "SET_MESSAGE", message: "Refreshing all host statuses..." });
+    } else if (key.upArrow) {
+      setSelectedIndex((i) => Math.max(0, i - 1));
+      setConfirmDelete(null);
+    } else if (key.downArrow) {
+      setSelectedIndex((i) => Math.min(allEntries.length - 1, i + 1));
+      setConfirmDelete(null);
+    } else if (key.escape) {
+      setConfirmDelete(null);
+      dispatch({ type: "CLEAR_MESSAGE" });
+    }
+  }, { isActive: mode === "list" });
+
+  // Form mode input
+  useInput((_input, key) => {
+    if (mode !== "create" && mode !== "edit") return;
+
+    if (key.escape) {
+      resetForm();
+      setMode("list");
+    } else if (key.tab) {
+      const fields: FormField[] = mode === "edit" ? ["host", "repo"] : ["name", "host", "repo"];
+      const idx = fields.indexOf(formField);
+      setFormField(fields[(idx + 1) % fields.length]);
+    } else if (key.return && formField === "repo") {
+      handleCreate();
+    } else if (key.return) {
+      const fields: FormField[] = mode === "edit" ? ["host", "repo"] : ["name", "host", "repo"];
+      const idx = fields.indexOf(formField);
+      if (idx < fields.length - 1) {
+        setFormField(fields[idx + 1]);
       }
-    },
-    { isActive: mode === "list" }
-  );
+    }
+  }, { isActive: mode === "create" || mode === "edit" });
 
-  // Form mode input (create/edit)
-  useInput(
-    (_input, key) => {
-      if (mode !== "create" && mode !== "edit") return;
-
-      if (key.escape) {
-        resetForm();
-        setMode("list");
-      } else if (key.tab) {
-        nextField();
-      } else if (key.return && activeField === "repo") {
-        handleSubmit();
-      } else if (key.return) {
-        nextField();
-      }
-    },
-    { isActive: mode === "create" || mode === "edit" }
-  );
-
-  // Form view (create or edit)
+  // Form rendering
   if (mode === "create" || mode === "edit") {
-    const title = mode === "create" ? "Create New Host" : "Edit Host";
-    const fieldBorderColor = (field: Field) =>
-      activeField === field ? colors.primary : colors.cardBorder;
+    const title = mode === "edit" ? "Edit Host" : "Create New Host";
+    const fieldBorderColor = (field: FormField) =>
+      formField === field ? colors.primary : colors.cardBorder;
 
-    const fields: { field: Field; label: string; value: string; onChange: (v: string) => void; placeholder: string }[] = [
-      { field: "name", label: "Name:", value: fieldName, onChange: setFieldName, placeholder: "my-server" },
-      { field: "host", label: "Host:", value: fieldHost, onChange: setFieldHost, placeholder: "user@hostname" },
-      { field: "repo", label: "Default Repo:", value: fieldRepo, onChange: setFieldRepo, placeholder: "/path/to/repo (optional)" },
-    ];
+    const renderField = (field: FormField, label: string, value: string, onChange: (v: string) => void, placeholder: string) => (
+      <Box
+        flexDirection="column"
+        borderStyle="round"
+        borderColor={fieldBorderColor(field)}
+        paddingX={2}
+        marginBottom={1}
+        key={field}
+      >
+        <Box>
+          <Box width={16}>
+            <Text
+              color={formField === field ? colors.textBright : colors.muted}
+              backgroundColor={formField === field ? colors.primary : undefined}
+              bold={formField === field}
+            >
+              {label}:
+            </Text>
+          </Box>
+          <Box>
+            {formField === field ? (
+              <TextInput value={value} onChange={onChange} placeholder={placeholder} />
+            ) : (
+              <Text>{value || <Text color={colors.muted}>{placeholder}</Text>}</Text>
+            )}
+          </Box>
+        </Box>
+      </Box>
+    );
 
     return (
       <Box flexDirection="column" paddingX={1} paddingY={1}>
@@ -228,39 +247,18 @@ export function Hosts({ state, dispatch, onReloadHosts }: HostsProps) {
           </Box>
         )}
 
-        {fields.map(({ field, label, value, onChange, placeholder }) => (
-          <Box
-            key={field}
-            flexDirection="column"
-            borderStyle="round"
-            borderColor={fieldBorderColor(field)}
-            paddingX={2}
-            marginBottom={1}
-          >
-            <Box>
-              <Box width={16}>
-                <Text
-                  color={activeField === field ? colors.textBright : colors.muted}
-                  backgroundColor={activeField === field ? colors.primary : undefined}
-                  bold={activeField === field}
-                >
-                  {label}
-                </Text>
-              </Box>
-              <Box>
-                {activeField === field ? (
-                  <TextInput value={value} onChange={onChange} placeholder={placeholder} />
-                ) : (
-                  <Text>{value || <Text color={colors.muted}>{placeholder}</Text>}</Text>
-                )}
-              </Box>
-            </Box>
+        {mode === "create" && renderField("name", "Name", formName, setFormName, "dev-server")}
+        {mode === "edit" && (
+          <Box paddingX={1} marginBottom={1}>
+            <Text color={colors.muted}>Editing: {editingName}</Text>
           </Box>
-        ))}
+        )}
+        {renderField("host", "SSH Host", formHost, setFormHost, "user@hostname")}
+        {renderField("repo", "Default Repo", formRepo, setFormRepo, "/path/to/repo (optional)")}
 
         <Box marginTop={1} paddingX={1}>
           <Text color={colors.muted}>
-            [Tab] switch field · [Enter] on last field to submit · [Esc] cancel
+            [Tab] switch field · [Enter] on repo to save · [Esc] cancel
           </Text>
         </Box>
       </Box>
@@ -270,33 +268,70 @@ export function Hosts({ state, dispatch, onReloadHosts }: HostsProps) {
   // List mode
   return (
     <Box flexDirection="column" paddingX={1} paddingY={1}>
-      {hostEntries.length === 0 ? (
-        <Box paddingX={1}>
-          <Text color={colors.muted}>No hosts configured. Press [c] to create one.</Text>
-        </Box>
-      ) : (
-        <Box flexDirection="column">
-          {hostEntries.map(([name, config], idx) => {
-            const isSelected = idx === selectedIndex;
-            return (
-              <Box key={name} paddingX={1}>
+      <Box flexDirection="column">
+        {allEntries.map((entry, idx) => {
+          const isSelected = idx === selectedIndex;
+          const status = state.hostStatus[entry.name];
+          const displayName = entry.isLocal
+            ? (status?.hostname || "local")
+            : entry.name;
+          const statusText = !status || status.status === "unknown"
+            ? { label: "Unknown", color: colors.muted, dot: "○" }
+            : status.status === "checking"
+            ? { label: "Checking...", color: colors.warning, dot: "◌" }
+            : status.status === "online"
+            ? { label: "Online", color: colors.success, dot: "●" }
+            : { label: "Offline", color: colors.danger, dot: "●" };
+
+          return (
+            <Box key={entry.name} flexDirection="column" marginBottom={1}>
+              <Box paddingX={1}>
                 <Text
                   color={isSelected ? colors.textBright : colors.text}
                   backgroundColor={isSelected ? colors.primary : undefined}
                   bold={isSelected}
                 >
                   {isSelected ? "› " : "  "}
-                  {name}
+                  {displayName}
                 </Text>
-                <Text color={colors.muted}>
-                  {" "}— {config.host}
-                  {config.defaultRepo ? ` (repo: ${config.defaultRepo})` : ""}
-                </Text>
+                {entry.isLocal && (
+                  <Text color={colors.muted} dimColor>  (local)</Text>
+                )}
+                <Text>  </Text>
+                <Text color={statusText.color}>{statusText.dot} {statusText.label}</Text>
+                {status?.latencyMs !== undefined && (
+                  <Text color={colors.muted}>  {status.latencyMs}ms</Text>
+                )}
               </Box>
-            );
-          })}
-        </Box>
-      )}
+              <Box paddingX={1}>
+                <Text color={colors.muted}>
+                  {"    "}
+                  {entry.isLocal ? "localhost" : entry.host}
+                </Text>
+                {status?.os && (
+                  <Text color={colors.muted}>  {status.os}</Text>
+                )}
+                {status?.uptime && (
+                  <Text color={colors.muted}> · {status.uptime}</Text>
+                )}
+                {status?.ramUsage && (
+                  <Text color={colors.muted}> · RAM {status.ramUsage}</Text>
+                )}
+              </Box>
+              {entry.defaultRepo && (
+                <Box paddingX={1}>
+                  <Text color={colors.muted}>{"    "}repo: {entry.defaultRepo}</Text>
+                </Box>
+              )}
+            </Box>
+          );
+        })}
+        {remoteEntries.length === 0 && (
+          <Box paddingX={1}>
+            <Text color={colors.muted}>No remote hosts configured. Press [c] to add one.</Text>
+          </Box>
+        )}
+      </Box>
     </Box>
   );
 }

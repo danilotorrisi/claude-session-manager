@@ -10,8 +10,8 @@ import { Tasks } from "./views/Tasks";
 import { Hosts } from "./views/Hosts";
 import { useSessions } from "./hooks/useSessions";
 import { useProjects } from "./hooks/useProjects";
-import { useLinearTasks } from "./hooks/useLinearTasks";
 import { useHosts } from "./hooks/useHosts";
+import { useLinearTasks } from "./hooks/useLinearTasks";
 import { initialState, appReducer } from "./types";
 import { colors } from "./theme";
 
@@ -19,8 +19,8 @@ export function App() {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const { refresh } = useSessions(dispatch);
   const { reload: reloadProjects } = useProjects(dispatch);
+  const { reload: reloadHosts, checkHost, refreshStatus: refreshHostStatus } = useHosts(dispatch);
   const { refresh: refreshTasks, loadMore: loadMoreTasks, paginationRef } = useLinearTasks(dispatch);
-  const { reload: reloadHosts } = useHosts(dispatch);
   const { stdout } = useStdout();
 
   const handleRefresh = useCallback(async () => {
@@ -31,8 +31,8 @@ export function App() {
     const tabs = [
       { key: "sessions" as const, label: "Sessions" },
       { key: "projects" as const, label: "Projects" },
-      { key: "tasks" as const, label: "Tasks" },
       { key: "hosts" as const, label: "Hosts" },
+      { key: "tasks" as const, label: "Tasks" },
     ];
 
     return (
@@ -74,19 +74,21 @@ export function App() {
               dispatch={dispatch}
               onReloadProjects={reloadProjects}
             />
-          ) : state.activeTab === "tasks" ? (
+          ) : state.activeTab === "hosts" ? (
+            <Hosts
+              state={state}
+              dispatch={dispatch}
+              onReload={reloadHosts}
+              onCheckHost={checkHost}
+              onRefreshStatus={refreshHostStatus}
+            />
+          ) : (
             <Tasks
               state={state}
               dispatch={dispatch}
               onRefresh={refreshTasks}
               onLoadMore={loadMoreTasks}
               paginationRef={paginationRef}
-            />
-          ) : (
-            <Hosts
-              state={state}
-              dispatch={dispatch}
-              onReloadHosts={reloadHosts}
             />
           )}
         </>
