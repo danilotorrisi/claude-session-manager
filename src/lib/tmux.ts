@@ -60,6 +60,7 @@ export async function listSessions(hostName?: string): Promise<Session[]> {
       } catch {
         normalizedPath = wtPath.startsWith("/tmp/") ? "/private" + wtPath : wtPath;
       }
+      session.worktreePath = wtPath;
       const stateInfo = claudeStates.get(normalizedPath);
       if (stateInfo) {
         session.claudeState = stateInfo.state;
@@ -76,8 +77,11 @@ export async function listSessions(hostName?: string): Promise<Session[]> {
       if (metadata?.linearIssue) {
         session.linearIssue = metadata.linearIssue;
       }
+      if (metadata?.projectName) {
+        session.projectName = metadata.projectName;
+      }
     } catch {
-      // Skip linear issue enrichment on error
+      // Skip metadata enrichment on error
     }
   }
 
@@ -135,7 +139,7 @@ export async function createSession(
   // Create detached tmux session with a login shell, then run claude
   // Using a login shell ensures proper environment (PATH, etc.)
   // The shell stays open if claude exits, allowing debugging
-  const command = `tmux new-session -d -s ${sessionName} -c "${workingDir}" && tmux send-keys -t ${sessionName} 'claude' Enter`;
+  const command = `tmux new-session -d -s ${sessionName} -c "${workingDir}" -n claude && tmux send-keys -t ${sessionName}:claude 'claude' Enter && tmux new-window -t ${sessionName} -n terminal -c "${workingDir}" && tmux select-window -t ${sessionName}:claude`;
   return exec(command, hostName);
 }
 

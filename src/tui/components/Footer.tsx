@@ -1,10 +1,11 @@
 import React from "react";
 import { Box, Text } from "ink";
-import type { View } from "../types";
+import type { View, Tab } from "../types";
 import { colors } from "../theme";
 
 interface FooterProps {
   view: View;
+  activeTab?: Tab;
 }
 
 interface KeyHint {
@@ -12,14 +13,25 @@ interface KeyHint {
   label: string;
 }
 
-const keyHints: Record<View, KeyHint[]> = {
+const keyHints: Record<string, KeyHint[]> = {
   dashboard: [
     { key: "↑↓", label: "navigate" },
     { key: "enter", label: "manage" },
     { key: "a", label: "attach" },
+    { key: "t", label: "terminal" },
     { key: "c", label: "create" },
     { key: "k", label: "kill" },
+    { key: "f", label: "finder" },
     { key: "r", label: "refresh" },
+    { key: "tab", label: "switch tab" },
+    { key: "q", label: "quit" },
+  ],
+  projects: [
+    { key: "↑↓", label: "navigate" },
+    { key: "c", label: "create" },
+    { key: "r", label: "rename" },
+    { key: "d", label: "delete" },
+    { key: "tab", label: "switch tab" },
     { key: "q", label: "quit" },
   ],
   create: [
@@ -29,14 +41,21 @@ const keyHints: Record<View, KeyHint[]> = {
   ],
   detail: [
     { key: "a", label: "attach" },
+    { key: "t", label: "terminal" },
     { key: "k", label: "kill" },
     { key: "esc", label: "back" },
     { key: "q", label: "quit" },
   ],
 };
 
-export function Footer({ view }: FooterProps) {
-  const hints = keyHints[view];
+export function Footer({ view, activeTab }: FooterProps) {
+  let hintsKey: string;
+  if (view === "dashboard" && activeTab === "projects") {
+    hintsKey = "projects";
+  } else {
+    hintsKey = view;
+  }
+  const hints = keyHints[hintsKey] || keyHints.dashboard;
 
   return (
     <Box marginTop={1} paddingX={1} paddingY={0}>

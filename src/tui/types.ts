@@ -1,6 +1,7 @@
-import type { Session } from "../types";
+import type { Session, Project } from "../types";
 
-export type View = "dashboard" | "create" | "detail";
+export type Tab = "sessions" | "projects";
+export type View = "dashboard" | "create" | "detail" | "projects";
 
 export interface AppState {
   view: View;
@@ -9,6 +10,8 @@ export interface AppState {
   loading: boolean;
   error: string | null;
   message: string | null;
+  activeTab: Tab;
+  projects: Project[];
 }
 
 export type AppAction =
@@ -18,7 +21,9 @@ export type AppAction =
   | { type: "SET_LOADING"; loading: boolean }
   | { type: "SET_ERROR"; error: string | null }
   | { type: "SET_MESSAGE"; message: string | null }
-  | { type: "CLEAR_MESSAGE" };
+  | { type: "CLEAR_MESSAGE" }
+  | { type: "SET_TAB"; tab: Tab }
+  | { type: "SET_PROJECTS"; projects: Project[] };
 
 export const initialState: AppState = {
   view: "dashboard",
@@ -27,6 +32,8 @@ export const initialState: AppState = {
   loading: true,
   error: null,
   message: null,
+  activeTab: "sessions",
+  projects: [],
 };
 
 export function appReducer(state: AppState, action: AppAction): AppState {
@@ -45,6 +52,10 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, message: action.message };
     case "CLEAR_MESSAGE":
       return { ...state, message: null };
+    case "SET_TAB":
+      return { ...state, activeTab: action.tab };
+    case "SET_PROJECTS":
+      return { ...state, projects: action.projects };
     default:
       return state;
   }

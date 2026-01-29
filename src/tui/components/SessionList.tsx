@@ -11,6 +11,7 @@ interface SessionListProps {
   onActivate: (session: Session) => void;
   onPreview?: (session: Session) => void;
   onInfo?: (session: Session) => void;
+  sessionGroups?: Map<string | null, Session[]>;
 }
 
 export function SessionList({
@@ -21,6 +22,7 @@ export function SessionList({
   onActivate,
   onPreview,
   onInfo,
+  sessionGroups,
 }: SessionListProps) {
   useInput((input, key) => {
     if (key.upArrow) {
@@ -45,6 +47,37 @@ export function SessionList({
         </Text>
       </Box>
     );
+  }
+
+  // Build a flat render list with group headers interspersed
+  type RenderItem =
+    | { type: "header"; label: string }
+    | { type: "session"; session: Session; flatIndex: number };
+
+  const renderItems: RenderItem[] = [];
+
+  if (sessionGroups && sessionGroups.size > 0) {
+    // Render grouped: named projects first, then ungrouped
+    const sortedKeys = Array.from(sessionGroups.keys()).sort((a, b) => {
+      if (a === null) return 1;
+      if (b === null) return -1;
+      return a.localeCompare(b);
+    });
+
+    let flatIdx = 0;
+    for (const key of sortedKeys) {
+      const groupSessions = sessionGroups.get(key)!;
+      renderItems.push({ type: "header", label: key ? `▸ ${key}` : "▸ Ungrouped" });
+      for (const session of groupSessions) {
+        renderItems.push({ type: "session", session, flatIndex: flatIdx });
+        flatIdx++;
+      }
+    }
+  } else {
+    // No grouping, flat list
+    sessions.forEach((session, idx) => {
+      renderItems.push({ type: "session", session, flatIndex: idx });
+    });
   }
 
   return (
@@ -76,8 +109,17 @@ export function SessionList({
         </Box>
       </Box>
 
-      {/* Session rows */}
-      {sessions.map((session, index) => {
+      {/* Session rows with optional group headers */}
+      {renderItems.map((item, renderIdx) => {
+        if (item.type === "header") {
+          return (
+            <Box key={`header-${item.label}`} paddingX={1} marginTop={renderIdx > 0 ? 1 : 0}>
+              <Text color={colors.muted} bold>{item.label}</Text>
+            </Box>
+          );
+        }
+
+        const { session, flatIndex: index } = item;
         const isSelected = index === selectedIndex;
         const created = formatRelativeTime(session.created);
         const displayText = (session.claudeLastMessage?.replace(/\n/g, " ") || session.title || "-");

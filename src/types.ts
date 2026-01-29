@@ -13,11 +13,17 @@ export interface HostConfig {
   defaultRepo?: string;
 }
 
+export interface Project {
+  name: string;
+  repoPath: string;
+}
+
 export interface Config {
   defaultRepo?: string;
   worktreeBase: string;
   hosts: Record<string, HostConfig>;
   linearApiKey?: string;
+  projects?: Project[];
 }
 
 export interface Session {
@@ -31,6 +37,7 @@ export interface Session {
   claudeState?: "idle" | "working" | "waiting_for_input";
   claudeLastMessage?: string;
   linearIssue?: LinearIssue;
+  projectName?: string;
 }
 
 export interface CommandResult {

@@ -8,6 +8,7 @@ interface SessionMetadata {
   branchName: string;
   createdAt: string;
   linearIssue?: LinearIssue;
+  projectName?: string;
 }
 
 export function generateBranchName(sessionName: string): string {
@@ -30,7 +31,8 @@ export async function saveSessionMetadata(
   repoPath: string,
   branchName: string,
   hostName?: string,
-  linearIssue?: LinearIssue
+  linearIssue?: LinearIssue,
+  projectName?: string
 ): Promise<void> {
   const metadataPath = await getMetadataPath(sessionName);
   const metadata: SessionMetadata = {
@@ -38,6 +40,7 @@ export async function saveSessionMetadata(
     branchName,
     createdAt: new Date().toISOString(),
     ...(linearIssue && { linearIssue }),
+    ...(projectName && { projectName }),
   };
   await exec(`echo '${JSON.stringify(metadata)}' > "${metadataPath}"`, hostName);
 }
@@ -96,7 +99,8 @@ export async function createWorktree(
   sessionName: string,
   repoPath: string,
   hostName?: string,
-  linearIssue?: LinearIssue
+  linearIssue?: LinearIssue,
+  projectName?: string
 ): Promise<CommandResult> {
   const branchName = generateBranchName(sessionName);
   const worktreePath = await getWorktreePath(sessionName);
@@ -111,7 +115,7 @@ export async function createWorktree(
 
   // Save metadata for later cleanup
   if (result.success) {
-    await saveSessionMetadata(sessionName, repoPath, branchName, hostName, linearIssue);
+    await saveSessionMetadata(sessionName, repoPath, branchName, hostName, linearIssue, projectName);
   }
 
   return result;

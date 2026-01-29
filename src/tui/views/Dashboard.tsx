@@ -7,15 +7,27 @@ import type { Session } from "../../types";
 import type { AppState, AppAction } from "../types";
 import { killSession, getSessionName, sendToSession } from "../../lib/tmux";
 import { removeWorktree, loadSessionMetadata, deleteBranch } from "../../lib/worktree";
+import { exec } from "child_process";
 import { getDefaultRepo } from "../../lib/config";
 import { cleanupStateFile } from "../../lib/claude-state";
-import { exitTuiAndAttachAutoReturn } from "../index";
+import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal } from "../index";
 import { colors } from "../theme";
 
 interface DashboardProps {
   state: AppState;
   dispatch: React.Dispatch<AppAction>;
   onRefresh: () => Promise<void>;
+}
+
+function groupSessionsByProject(sessions: Session[]): Map<string | null, Session[]> {
+  const groups = new Map<string | null, Session[]>();
+  for (const session of sessions) {
+    const key = session.projectName || null;
+    const group = groups.get(key) || [];
+    group.push(session);
+    groups.set(key, group);
+  }
+  return groups;
 }
 
 export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
@@ -26,10 +38,34 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   const [replyMode, setReplyMode] = useState(false);
   const [replyText, setReplyText] = useState("");
 
+  // Compute grouped sessions for display
+  const sessionGroups = groupSessionsByProject(state.sessions);
+  const hasGroups = Array.from(sessionGroups.keys()).some((k) => k !== null);
+
+  // Build flat ordered list matching group order
+  const orderedSessions: Session[] = [];
+  if (hasGroups) {
+    const sortedKeys = Array.from(sessionGroups.keys()).sort((a, b) => {
+      if (a === null) return 1;
+      if (b === null) return -1;
+      return a.localeCompare(b);
+    });
+    for (const key of sortedKeys) {
+      orderedSessions.push(...sessionGroups.get(key)!);
+    }
+  } else {
+    orderedSessions.push(...state.sessions);
+  }
+
   const handleAttach = useCallback(async (session: Session) => {
     // Exit TUI, attach to tmux session with auto-return when Claude starts working
     const tmuxSessionName = getSessionName(session.name);
     await exitTuiAndAttachAutoReturn(session.name, tmuxSessionName);
+  }, []);
+
+  const handleAttachTerminal = useCallback(async (session: Session) => {
+    const tmuxSessionName = getSessionName(session.name);
+    await exitTuiAndAttachTerminal(session.name, tmuxSessionName, session.worktreePath);
   }, []);
 
   const handleKill = useCallback(async (session: Session) => {
@@ -114,6 +150,10 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
 
   // All other keybindings disabled during reply mode
   useInput((input, _key) => {
+    if (_key.tab && !replyMode) {
+      dispatch({ type: "SET_TAB", tab: "projects" });
+      return;
+    }
     if (input === "q") {
       exit();
     } else if (input === "c") {
@@ -123,10 +163,19 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       setReplyText("");
     } else if (input === "r") {
       onRefresh();
-    } else if (input === "a" && state.sessions[selectedIndex]) {
-      handleAttach(state.sessions[selectedIndex]);
-    } else if (input === "k" && state.sessions[selectedIndex]) {
-      handleKill(state.sessions[selectedIndex]);
+    } else if (input === "a" && orderedSessions[selectedIndex]) {
+      handleAttach(orderedSessions[selectedIndex]);
+    } else if (input === "k" && orderedSessions[selectedIndex]) {
+      handleKill(orderedSessions[selectedIndex]);
+    } else if (input === "t" && orderedSessions[selectedIndex]) {
+      handleAttachTerminal(orderedSessions[selectedIndex]);
+    } else if (input === "f" && orderedSessions[selectedIndex]) {
+      const session = orderedSessions[selectedIndex];
+      if (session.worktreePath) {
+        exec(`open "${session.worktreePath}"`);
+      } else {
+        dispatch({ type: "SET_MESSAGE", message: `No worktree path for "${session.name}"` });
+      }
     } else if (_key.escape) {
       setPreviewSession(null);
       setConfirmKill(null);
@@ -157,13 +206,14 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
         }}
       />
       <SessionList
-        sessions={state.sessions}
+        sessions={orderedSessions}
         selectedIndex={selectedIndex}
         inputActive={!replyMode}
         onSelect={handleSelect}
         onActivate={handleAttach}
         onPreview={handlePreview}
         onInfo={handleInfo}
+        sessionGroups={sessionGroups}
       />
       {previewSession?.claudeLastMessage && (
         <Box

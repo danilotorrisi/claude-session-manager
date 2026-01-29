@@ -3,7 +3,7 @@ import { Box, Text, useInput } from "ink";
 import TextInput from "ink-text-input";
 import Spinner from "ink-spinner";
 import type { AppState, AppAction } from "../types";
-import type { LinearIssue } from "../../types";
+import type { LinearIssue, Project } from "../../types";
 import { sessionExists, createSession } from "../../lib/tmux";
 import {
   createWorktree,
@@ -11,7 +11,7 @@ import {
   isWorktreeConflictError,
   cleanupStaleWorktree,
 } from "../../lib/worktree";
-import { getDefaultRepo, getLinearApiKey, expandTilde } from "../../lib/config";
+import { getDefaultRepo, getLinearApiKey, expandTilde, getProjects } from "../../lib/config";
 import { searchIssues, listMyIssues } from "../../lib/linear";
 import { colors } from "../theme";
 
@@ -21,7 +21,7 @@ interface CreateSessionProps {
   onRefresh: () => Promise<void>;
 }
 
-type Field = "name" | "linear" | "repo" | "host";
+type Field = "linear" | "name" | "project" | "repo" | "host";
 type Status = "input" | "creating" | "confirm-cleanup" | "cleaning";
 
 export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps) {
@@ -43,12 +43,18 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
   const [linearSearching, setLinearSearching] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load default repo and Linear API key on mount
+  // Project picker state
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectSelectedIdx, setProjectSelectedIdx] = useState(0);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+
+  // Load default repo, Linear API key, and projects on mount
   useEffect(() => {
     getDefaultRepo().then((r) => setDefaultRepo(r || null));
-    getLinearApiKey().then((key) => {
-      setLinearApiKey(key || null);
-      if (key) setActiveField("linear");
+    getLinearApiKey().then((key) => setLinearApiKey(key || null));
+    getProjects().then((p) => {
+      setProjects(p);
+      if (p.length > 0) setActiveField("project");
     });
   }, []);
 
@@ -100,9 +106,10 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
 
   const doCreate = useCallback(async (repoPath: string, hostName?: string) => {
     const issue = selectedIssue || undefined;
+    const projName = selectedProject?.name || undefined;
 
     // Create worktree
-    const worktreeResult = await createWorktree(name, repoPath, hostName, issue);
+    const worktreeResult = await createWorktree(name, repoPath, hostName, issue, projName);
 
     if (!worktreeResult.success) {
       if (isWorktreeConflictError(worktreeResult.stderr)) {
@@ -123,7 +130,7 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
     dispatch({ type: "SET_MESSAGE", message: `Session "${name}" created successfully` });
     dispatch({ type: "SET_VIEW", view: "dashboard" });
     await onRefresh();
-  }, [name, selectedIssue, dispatch, onRefresh]);
+  }, [name, selectedIssue, selectedProject, dispatch, onRefresh]);
 
   const handleCreate = useCallback(async () => {
     // Validate
@@ -133,7 +140,7 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
       return;
     }
 
-    const repoPath = (repo.trim() ? expandTilde(repo.trim()) : null) || defaultRepo;
+    const repoPath = (repo.trim() ? expandTilde(repo.trim()) : null) || (selectedProject ? expandTilde(selectedProject.repoPath) : null) || defaultRepo;
     if (!repoPath) {
       setError("Repository path is required (no default configured)");
       return;
@@ -155,7 +162,7 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
       setError(err instanceof Error ? err.message : "Failed to create session");
       setStatus("input");
     }
-  }, [name, repo, host, defaultRepo, doCreate]);
+  }, [name, repo, host, defaultRepo, selectedProject, doCreate]);
 
   const handleCleanupAndRetry = useCallback(async () => {
     if (!pendingRepoPath) return;
@@ -172,7 +179,11 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
     }
   }, [name, host, pendingRepoPath, doCreate]);
 
+  const hasProjects = projects.length > 0;
+
+  // Field order: project → linear → name → repo → host
   const nextField = (current: Field): Field => {
+    if (current === "project") return linearApiKey ? "linear" : "name";
     if (current === "linear") return "name";
     if (current === "name") return "repo";
     if (current === "repo") return "host";
@@ -182,8 +193,9 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
   const prevField = (current: Field): Field => {
     if (current === "host") return "repo";
     if (current === "repo") return "name";
-    if (current === "name") return linearApiKey ? "linear" : "name";
-    return "linear";
+    if (current === "name") return linearApiKey ? "linear" : (hasProjects ? "project" : "name");
+    if (current === "linear") return hasProjects ? "project" : "linear";
+    return "project";
   };
 
   useInput((input, key) => {
@@ -220,7 +232,12 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
         setSelectedIssue(issue);
         setLinearResults([]);
         setName(slugifyIssueName(issue));
-        setActiveField("name");
+        // If repo is already set (e.g. from project selection), skip to host
+        if (repo || selectedProject) {
+          setActiveField("host");
+        } else {
+          setActiveField("name");
+        }
         return;
       }
     }
@@ -239,11 +256,30 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
       return;
     }
 
+    // Project field: arrow keys to navigate, enter to select
+    if (activeField === "project" && hasProjects) {
+      if (key.upArrow) {
+        setProjectSelectedIdx(Math.max(0, projectSelectedIdx - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setProjectSelectedIdx(Math.min(projects.length - 1, projectSelectedIdx + 1));
+        return;
+      }
+      if (key.return) {
+        const project = projects[projectSelectedIdx];
+        setSelectedProject(project);
+        setRepo(project.repoPath);
+        setActiveField(linearApiKey ? "linear" : "name");
+        return;
+      }
+    }
+
     if (key.shift && key.tab) {
       setActiveField(prevField(activeField));
     } else if (key.return && activeField === "host") {
       handleCreate();
-    } else if (key.tab || (key.return && activeField !== "host" && activeField !== "linear")) {
+    } else if (key.tab || (key.return && activeField !== "host" && activeField !== "linear" && activeField !== "project")) {
       setActiveField(nextField(activeField));
     }
   });
@@ -305,6 +341,8 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
   const fieldBorderColor = (field: Field) =>
     activeField === field ? colors.primary : colors.cardBorder;
 
+  const effectiveRepo = repo || (selectedProject ? selectedProject.repoPath : null) || defaultRepo;
+
   return (
     <Box flexDirection="column" paddingX={1} paddingY={1}>
       <Box marginBottom={1}>
@@ -316,6 +354,50 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
       {error && (
         <Box marginBottom={1} paddingX={1}>
           <Text color={colors.danger}>✗ {error}</Text>
+        </Box>
+      )}
+
+      {/* Project (optional, shown if projects exist) */}
+      {hasProjects && (
+        <Box
+          flexDirection="column"
+          borderStyle="round"
+          borderColor={fieldBorderColor("project")}
+          paddingX={2}
+          marginBottom={1}
+        >
+          <Box>
+            <Box width={16}>
+              <Text color={activeField === "project" ? colors.textBright : colors.muted} backgroundColor={activeField === "project" ? colors.primary : undefined} bold={activeField === "project"}>
+                Project:
+              </Text>
+            </Box>
+            <Box>
+              {selectedProject ? (
+                <Text color={colors.success}>{selectedProject.name}</Text>
+              ) : (
+                <Text color={colors.muted}>(none)</Text>
+              )}
+            </Box>
+          </Box>
+          {activeField === "project" && (
+            <Box flexDirection="column" marginTop={1}>
+              {projects.map((project, idx) => (
+                <Box key={project.name}>
+                  <Text
+                    color={idx === projectSelectedIdx ? colors.textBright : colors.muted}
+                    backgroundColor={idx === projectSelectedIdx ? colors.primary : undefined}
+                    bold={idx === projectSelectedIdx}
+                  >
+                    {idx === projectSelectedIdx ? "› " : "  "}
+                    {project.name}
+                    <Text color={colors.muted} dimColor> — {project.repoPath}</Text>
+                  </Text>
+                </Box>
+              ))}
+              <Text color={colors.muted} dimColor>↑↓ navigate · Enter select · Tab skip</Text>
+            </Box>
+          )}
         </Box>
       )}
 
@@ -424,20 +506,20 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
               <TextInput
                 value={repo}
                 onChange={setRepo}
-                placeholder={defaultRepo || "/path/to/repo"}
+                placeholder={effectiveRepo || "/path/to/repo"}
               />
             ) : (
               <Text>
                 {repo || (
-                  <Text color={colors.muted}>{defaultRepo || "/path/to/repo"}</Text>
+                  <Text color={colors.muted}>{effectiveRepo || "/path/to/repo"}</Text>
                 )}
               </Text>
             )}
           </Box>
         </Box>
-        {defaultRepo && !repo && (
+        {effectiveRepo && !repo && (
           <Text color={colors.muted} dimColor>
-            default: {defaultRepo}
+            default: {effectiveRepo}
           </Text>
         )}
       </Box>

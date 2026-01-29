@@ -1,6 +1,6 @@
 import { homedir } from "os";
 import { join } from "path";
-import type { Config, HostConfig } from "../types";
+import type { Config, HostConfig, Project } from "../types";
 
 export function expandTilde(filepath: string): string {
   if (filepath === "~") return homedir();
@@ -61,6 +61,37 @@ export async function getWorktreeBase(): Promise<string> {
 export async function getLinearApiKey(): Promise<string | undefined> {
   const config = await loadConfig();
   return config.linearApiKey;
+}
+
+export async function getProjects(): Promise<Project[]> {
+  const config = await loadConfig();
+  return config.projects || [];
+}
+
+export async function addProject(project: Project): Promise<void> {
+  const config = await loadConfig();
+  const projects = config.projects || [];
+  // Replace if same name exists
+  const filtered = projects.filter((p) => p.name !== project.name);
+  filtered.push(project);
+  config.projects = filtered;
+  await saveConfig(config);
+}
+
+export async function deleteProject(name: string): Promise<void> {
+  const config = await loadConfig();
+  config.projects = (config.projects || []).filter((p) => p.name !== name);
+  await saveConfig(config);
+}
+
+export async function renameProject(oldName: string, newName: string): Promise<void> {
+  const config = await loadConfig();
+  const projects = config.projects || [];
+  const project = projects.find((p) => p.name === oldName);
+  if (project) {
+    project.name = newName;
+    await saveConfig(config);
+  }
 }
 
 export { CONFIG_DIR, CONFIG_FILE };
