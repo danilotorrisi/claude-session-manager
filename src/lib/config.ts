@@ -84,6 +84,29 @@ export async function deleteProject(name: string): Promise<void> {
   await saveConfig(config);
 }
 
+export async function getHosts(): Promise<Record<string, HostConfig>> {
+  const config = await loadConfig();
+  return config.hosts || {};
+}
+
+export async function addHost(name: string, host: HostConfig): Promise<void> {
+  const config = await loadConfig();
+  config.hosts[name] = host;
+  await saveConfig(config);
+}
+
+export async function updateHost(name: string, host: HostConfig): Promise<void> {
+  const config = await loadConfig();
+  config.hosts[name] = host;
+  await saveConfig(config);
+}
+
+export async function deleteHost(name: string): Promise<void> {
+  const config = await loadConfig();
+  delete config.hosts[name];
+  await saveConfig(config);
+}
+
 export async function renameProject(oldName: string, newName: string): Promise<void> {
   const config = await loadConfig();
   const projects = config.projects || [];

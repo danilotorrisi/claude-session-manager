@@ -1,4 +1,4 @@
-import type { Session, CommandResult, LinearIssue, GitStats } from "../types";
+import type { Session, CommandResult, LinearIssue, GitStats, GitFileChange } from "../types";
 import { exec } from "./ssh";
 import { readClaudeStates, getLastAssistantMessage } from "./claude-state";
 import { getWorktreePath, loadSessionMetadata } from "./worktree";
@@ -111,6 +111,92 @@ async function getGitStats(worktreePath: string): Promise<GitStats | undefined> 
     };
   } catch {
     return undefined;
+  }
+}
+
+export async function getDetailedGitStats(worktreePath: string): Promise<GitStats | undefined> {
+  try {
+    // Run git diff --numstat and git status --porcelain in parallel
+    const [numstatResult, statusResult] = await Promise.all([
+      exec(`git -C "${worktreePath}" diff --numstat HEAD 2>/dev/null`),
+      exec(`git -C "${worktreePath}" status --porcelain 2>/dev/null`),
+    ]);
+
+    // Parse status flags: M=modified, A=added, D=deleted, R=renamed, ??=untracked
+    const statusMap = new Map<string, string>();
+    if (statusResult.stdout) {
+      for (const line of statusResult.stdout.split("\n").filter(Boolean)) {
+        const flag = line.slice(0, 2).trim();
+        const file = line.slice(3);
+        statusMap.set(file, flag);
+      }
+    }
+
+    const fileChanges: GitFileChange[] = [];
+    const trackedFiles = new Set<string>();
+
+    // Parse numstat for tracked file changes
+    if (numstatResult.stdout) {
+      for (const line of numstatResult.stdout.split("\n").filter(Boolean)) {
+        const parts = line.split("\t");
+        if (parts.length < 3) continue;
+        const [ins, del, file] = parts;
+        trackedFiles.add(file);
+        const insertions = ins === "-" ? 0 : parseInt(ins, 10);
+        const deletions = del === "-" ? 0 : parseInt(del, 10);
+
+        const flag = statusMap.get(file) || "M";
+        let status: GitFileChange["status"] = "modified";
+        if (flag === "A" || flag === "AM") status = "added";
+        else if (flag === "D") status = "deleted";
+        else if (flag.startsWith("R")) status = "renamed";
+
+        fileChanges.push({ file, insertions, deletions, status });
+      }
+    }
+
+    // Add untracked files (status "??")
+    for (const [file, flag] of statusMap) {
+      if (flag === "??" && !trackedFiles.has(file)) {
+        fileChanges.push({ file, insertions: 0, deletions: 0, status: "added" });
+      }
+    }
+
+    if (fileChanges.length === 0) return undefined;
+
+    const totalInsertions = fileChanges.reduce((s, f) => s + f.insertions, 0);
+    const totalDeletions = fileChanges.reduce((s, f) => s + f.deletions, 0);
+
+    return {
+      filesChanged: fileChanges.length,
+      insertions: totalInsertions,
+      deletions: totalDeletions,
+      fileChanges,
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+export async function getFileDiff(worktreePath: string, filePath: string): Promise<string[]> {
+  try {
+    // Try tracked file diff first
+    const result = await exec(
+      `git -C "${worktreePath}" diff HEAD -- "${filePath}" 2>/dev/null`
+    );
+    if (result.stdout?.trim()) {
+      return result.stdout.split("\n");
+    }
+    // For untracked files, diff against /dev/null
+    const untrackedResult = await exec(
+      `git -C "${worktreePath}" diff --no-index /dev/null -- "${filePath}" 2>/dev/null || true`
+    );
+    if (untrackedResult.stdout?.trim()) {
+      return untrackedResult.stdout.split("\n");
+    }
+    return [];
+  } catch {
+    return [];
   }
 }
 

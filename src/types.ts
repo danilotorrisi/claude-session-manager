@@ -33,6 +33,14 @@ export interface GitStats {
   filesChanged: number;
   insertions: number;
   deletions: number;
+  fileChanges?: GitFileChange[];
+}
+
+export interface GitFileChange {
+  file: string;
+  insertions: number;
+  deletions: number;
+  status: 'modified' | 'added' | 'deleted' | 'renamed';
 }
 
 export interface FeedbackReport {
