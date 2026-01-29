@@ -1,4 +1,4 @@
-import type { Session, CommandResult, LinearIssue } from "../types";
+import type { Session, CommandResult, LinearIssue, GitStats } from "../types";
 import { exec } from "./ssh";
 import { readClaudeStates, getLastAssistantMessage } from "./claude-state";
 import { getWorktreePath, loadSessionMetadata } from "./worktree";
@@ -68,6 +68,7 @@ export async function listSessions(hostName?: string): Promise<Session[]> {
           session.claudeLastMessage = getLastAssistantMessage(stateInfo.transcriptPath);
         }
       }
+      session.gitStats = await getGitStats(wtPath);
     } catch {
       // Skip state enrichment on error
     }
@@ -86,6 +87,28 @@ export async function listSessions(hostName?: string): Promise<Session[]> {
   }
 
   return sessions;
+}
+
+async function getGitStats(worktreePath: string): Promise<GitStats | undefined> {
+  try {
+    const result = await exec(
+      `git -C "${worktreePath}" diff --stat HEAD 2>/dev/null | tail -1`
+    );
+    if (!result.stdout?.trim()) return undefined;
+    // e.g. "3 files changed, 55 insertions(+), 2 deletions(-)"
+    const line = result.stdout.trim();
+    const filesMatch = line.match(/(\d+)\s+files?\s+changed/);
+    const insMatch = line.match(/(\d+)\s+insertions?\(\+\)/);
+    const delMatch = line.match(/(\d+)\s+deletions?\(-\)/);
+    if (!filesMatch) return undefined;
+    return {
+      filesChanged: parseInt(filesMatch[1], 10),
+      insertions: insMatch ? parseInt(insMatch[1], 10) : 0,
+      deletions: delMatch ? parseInt(delMatch[1], 10) : 0,
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 export async function sessionExists(

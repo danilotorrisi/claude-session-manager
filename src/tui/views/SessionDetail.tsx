@@ -11,7 +11,7 @@ import {
 } from "../../lib/worktree";
 import { getDefaultRepo } from "../../lib/config";
 import { cleanupStateFile } from "../../lib/claude-state";
-import { exitTuiAndAttachAutoReturn } from "../index";
+import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal } from "../index";
 import { colors } from "../theme";
 
 interface SessionDetailProps {
@@ -46,6 +46,12 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
     const tmuxSessionName = getSessionName(session.name);
     await exitTuiAndAttachAutoReturn(session.name, tmuxSessionName);
   }, [session]);
+
+  const handleAttachTerminal = useCallback(async () => {
+    if (!session) return;
+    const tmuxSessionName = getSessionName(session.name);
+    await exitTuiAndAttachTerminal(session.name, tmuxSessionName, worktreePath || undefined);
+  }, [session, worktreePath]);
 
   const handleKill = useCallback(async () => {
     if (!session) return;
@@ -97,6 +103,8 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
       exit();
     } else if (input === "a") {
       handleAttach();
+    } else if (input === "t") {
+      handleAttachTerminal();
     } else if (input === "k") {
       handleKill();
     }
@@ -272,6 +280,11 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
           <Box marginRight={2}>
             <Text color={colors.buttonBg} backgroundColor={colors.success} bold>
               {" "}a Attach{" "}
+            </Text>
+          </Box>
+          <Box marginRight={2}>
+            <Text color={colors.buttonBg} backgroundColor={colors.accent} bold>
+              {" "}t Terminal{" "}
             </Text>
           </Box>
           <Box>

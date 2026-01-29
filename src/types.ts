@@ -29,6 +29,12 @@ export interface Config {
   projects?: Project[];
 }
 
+export interface GitStats {
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+}
+
 export interface Session {
   name: string;
   fullName: string;
@@ -41,6 +47,7 @@ export interface Session {
   claudeLastMessage?: string;
   linearIssue?: LinearIssue;
   projectName?: string;
+  gitStats?: GitStats;
 }
 
 export interface CommandResult {

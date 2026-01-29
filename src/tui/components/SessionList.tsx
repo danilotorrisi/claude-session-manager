@@ -102,6 +102,11 @@ export function SessionList({
             AGE
           </Text>
         </Box>
+        <Box width={18}>
+          <Text color={colors.muted} bold>
+            CHANGES
+          </Text>
+        </Box>
         <Box>
           <Text color={colors.muted} bold>
             LAST MESSAGE
@@ -172,6 +177,17 @@ export function SessionList({
             </Box>
             <Box width={10}>
               <Text color={colors.muted} backgroundColor={rowBg}>{created}</Text>
+            </Box>
+            <Box width={18}>
+              {session.gitStats ? (
+                <Text backgroundColor={rowBg}>
+                  <Text color={colors.muted}>{session.gitStats.filesChanged} 📄 </Text>
+                  <Text color={colors.success}>+{session.gitStats.insertions} </Text>
+                  <Text color={colors.danger}>-{session.gitStats.deletions}</Text>
+                </Text>
+              ) : (
+                <Text color={colors.mutedDark} dimColor backgroundColor={rowBg}>{"-"}</Text>
+              )}
             </Box>
             <Box>
               <Text

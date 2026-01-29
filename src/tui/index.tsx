@@ -124,7 +124,12 @@ done
   });
   watcher.unref();
 
-  // Attach to tmux (blocks until detach)
+  // Select the claude window if it exists (no-op for old sessions without named windows)
+  spawnSync("bash", ["-c", `tmux select-window -t ${tmuxSessionName}:claude 2>/dev/null || true`], {
+    stdio: "ignore",
+  });
+
+  // Attach to tmux session (blocks until detach)
   spawnSync("tmux", ["attach", "-t", tmuxSessionName], {
     stdio: "inherit",
     env: process.env,
@@ -137,9 +142,12 @@ done
 }
 
 /**
- * Attach to a tmux session's terminal window directly.
+ * Attach to the terminal window of a tmux session.
+ * Creates the terminal window on-the-fly if it doesn't exist (for older sessions).
+ * No auto-return watcher — user detaches manually with Ctrl+B d.
  */
 export async function exitTuiAndAttachTerminal(sessionName: string, tmuxSessionName: string, worktreePath?: string): Promise<void> {
+  // Unmount Ink and wait for cleanup
   if (instance) {
     instance.unmount();
     instance = null;
@@ -150,12 +158,14 @@ export async function exitTuiAndAttachTerminal(sessionName: string, tmuxSessionN
 
   const { spawnSync } = await import("child_process");
 
-  // Select the terminal window before attaching
-  spawnSync("tmux", ["select-window", "-t", `${tmuxSessionName}:terminal`], {
+  // Ensure terminal window exists; create it if missing (for older sessions)
+  const workDir = worktreePath || ".";
+  spawnSync("bash", ["-c", `tmux select-window -t ${tmuxSessionName}:terminal 2>/dev/null || tmux new-window -t ${tmuxSessionName} -n terminal -c "${workDir}"`], {
     stdio: "ignore",
   });
 
-  spawnSync("tmux", ["attach", "-t", tmuxSessionName], {
+  // Attach to the terminal window (blocks until detach)
+  spawnSync("tmux", ["attach", "-t", `${tmuxSessionName}:terminal`], {
     stdio: "inherit",
     env: process.env,
   });
