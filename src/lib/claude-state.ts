@@ -1,8 +1,11 @@
-import { readdirSync, readFileSync, realpathSync, unlinkSync } from "fs";
+import { readdirSync, readFileSync, realpathSync, statSync, unlinkSync } from "fs";
 import { join } from "path";
 
 const STATE_DIR = "/tmp/csm-claude-state";
 const STALE_THRESHOLD_MS = 60_000; // 60 seconds
+const WAITING_STALE_THRESHOLD_MS = 120_000; // 2 minutes
+const TRANSCRIPT_ACTIVE_THRESHOLD_MS = 10_000; // 10 seconds
+const MERGE_TIMESTAMP_THRESHOLD_S = 5; // 5 seconds
 
 export interface ClaudeStateInfo {
   state: "idle" | "working" | "waiting_for_input";
@@ -21,6 +24,21 @@ function normalizePath(p: string): string {
       return "/private" + p;
     }
     return p;
+  }
+}
+
+const STATE_PRIORITY: Record<string, number> = {
+  waiting_for_input: 2,
+  working: 1,
+  idle: 0,
+};
+
+function getFileMtimeSeconds(filePath: string): number | null {
+  try {
+    const stat = statSync(filePath);
+    return Math.floor(stat.mtimeMs / 1000);
+  } catch {
+    return null;
   }
 }
 
@@ -46,11 +64,63 @@ export function readClaudeStates(): Map<string, ClaudeStateInfo> {
         info.state = "idle";
       }
 
+      // Handle waiting_for_input staleness with transcript fallback
+      if (
+        info.state === "waiting_for_input" &&
+        now - info.timestamp > WAITING_STALE_THRESHOLD_MS / 1000
+      ) {
+        if (info.transcriptPath) {
+          const transcriptMtime = getFileMtimeSeconds(info.transcriptPath);
+          if (transcriptMtime !== null && transcriptMtime > info.timestamp) {
+            // Transcript was modified after state was set — Claude likely continued
+            info.state = "working";
+          } else {
+            info.state = "idle";
+          }
+        } else {
+          info.state = "idle";
+        }
+      }
+
       // Normalize the cwd for matching
       const normalizedCwd = normalizePath(info.cwd);
-      states.set(normalizedCwd, info);
+
+      // When multiple sessions share the same cwd (e.g. parent + subagents),
+      // merge states carefully to avoid subagent interference.
+      const existing = states.get(normalizedCwd);
+      if (existing) {
+        const existingPriority = STATE_PRIORITY[existing.state] ?? 0;
+        const newPriority = STATE_PRIORITY[info.state] ?? 0;
+        const bothActive = existingPriority > 0 && newPriority > 0;
+        const timestampDiff = Math.abs(info.timestamp - existing.timestamp);
+
+        if (bothActive && timestampDiff > MERGE_TIMESTAMP_THRESHOLD_S) {
+          // Both are active states with divergent timestamps — prefer the most recent
+          if (info.timestamp > existing.timestamp) {
+            states.set(normalizedCwd, info);
+          }
+        } else if (newPriority > existingPriority) {
+          states.set(normalizedCwd, info);
+        } else if (newPriority === existingPriority && info.timestamp > existing.timestamp) {
+          states.set(normalizedCwd, info);
+        }
+        // Otherwise keep existing
+      } else {
+        states.set(normalizedCwd, info);
+      }
     } catch {
       // Skip malformed files
+    }
+  }
+
+  // Post-processing: transcript mtime fallback for idle states
+  for (const [cwd, info] of states) {
+    if (info.state === "idle" && info.transcriptPath) {
+      const transcriptMtime = getFileMtimeSeconds(info.transcriptPath);
+      if (transcriptMtime !== null && now - transcriptMtime < TRANSCRIPT_ACTIVE_THRESHOLD_MS / 1000) {
+        info.state = "working";
+        states.set(cwd, info);
+      }
     }
   }
 
