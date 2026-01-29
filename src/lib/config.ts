@@ -94,4 +94,32 @@ export async function renameProject(oldName: string, newName: string): Promise<v
   }
 }
 
+export interface ArchivedSession {
+  name: string;
+  branchName: string;
+  repoPath: string;
+  projectName?: string;
+  linearIssue?: import("../types").LinearIssue;
+  createdAt: string;
+  mergedAt: string;
+  archivedAt: string;
+}
+
+const ARCHIVED_FILE = join(CONFIG_DIR, "archived.json");
+
+export async function saveArchivedSession(session: ArchivedSession): Promise<void> {
+  let archived: ArchivedSession[] = [];
+  try {
+    const file = Bun.file(ARCHIVED_FILE);
+    if (await file.exists()) {
+      archived = await file.json();
+    }
+  } catch {
+    // ignore
+  }
+  archived.push(session);
+  await ensureConfigDir();
+  await Bun.write(ARCHIVED_FILE, JSON.stringify(archived, null, 2));
+}
+
 export { CONFIG_DIR, CONFIG_FILE };

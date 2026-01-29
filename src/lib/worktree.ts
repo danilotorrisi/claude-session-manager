@@ -187,3 +187,93 @@ export async function worktreeExists(
   const result = await exec(`test -d "${worktreePath}"`, hostName);
   return result.success;
 }
+
+export async function checkWorktreeClean(
+  worktreePath: string,
+  hostName?: string
+): Promise<boolean> {
+  const result = await exec(`git -C "${worktreePath}" status --porcelain -uno`, hostName);
+  return result.success && !result.stdout.trim();
+}
+
+export async function generateCommitMessage(
+  worktreePath: string,
+  hostName?: string
+): Promise<{ success: boolean; message: string }> {
+  // Check if there are commits to merge
+  const logResult = await exec(
+    `git -C "${worktreePath}" log origin/main..HEAD --oneline`,
+    hostName
+  );
+  if (!logResult.success || !logResult.stdout.trim()) {
+    return { success: false, message: "No commits to merge" };
+  }
+
+  const diffStatResult = await exec(
+    `git -C "${worktreePath}" diff --stat origin/main...HEAD`,
+    hostName
+  );
+
+  const commitLog = logResult.stdout.trim();
+  const diffStat = diffStatResult.success ? diffStatResult.stdout.trim() : "";
+
+  const prompt = `Generate a concise git commit message for a squash merge. Here are the individual commits being squashed:\n\n${commitLog}\n\nDiff stats:\n${diffStat}\n\nWrite a clear, conventional commit message (subject line + optional body). No markdown formatting, no code fences. Just the raw commit message text.`;
+
+  try {
+    // Run claude -p with a 30s timeout
+    const claudePromise = exec(`claude -p "${prompt.replace(/"/g, '\\"')}"`, hostName);
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("timeout")), 30000)
+    );
+
+    const result = await Promise.race([claudePromise, timeoutPromise]);
+    if (result.success && result.stdout.trim()) {
+      return { success: true, message: result.stdout.trim() };
+    }
+  } catch {
+    // Timeout or error — fall through to fallback
+  }
+
+  // Fallback: build message from git log
+  const lines = commitLog.split("\n").map((l) => `- ${l.replace(/^[a-f0-9]+ /, "")}`);
+  const fallback = `Squash merge\n\n${lines.join("\n")}`;
+  return { success: true, message: fallback };
+}
+
+export async function squashMergeToMain(
+  worktreePath: string,
+  commitMessage: string,
+  hostName?: string
+): Promise<CommandResult> {
+  // Fetch latest from origin
+  const fetchResult = await exec(`git -C "${worktreePath}" fetch origin`, hostName);
+  if (!fetchResult.success) {
+    return fetchResult;
+  }
+
+  // Create a single commit with the session's tree, parented to origin/main
+  const escapedMessage = commitMessage.replace(/'/g, "'\\''");
+  const commitTreeResult = await exec(
+    `git -C "${worktreePath}" commit-tree HEAD^{tree} -p origin/main -m '${escapedMessage}'`,
+    hostName
+  );
+  if (!commitTreeResult.success) {
+    return commitTreeResult;
+  }
+
+  const sha = commitTreeResult.stdout.trim();
+
+  // Push the new commit to main
+  const pushResult = await exec(
+    `git -C "${worktreePath}" push origin ${sha}:refs/heads/main`,
+    hostName
+  );
+  if (!pushResult.success) {
+    return pushResult;
+  }
+
+  // Pull the updated origin/main so local refs are in sync
+  await exec(`git -C "${worktreePath}" fetch origin main`, hostName);
+
+  return pushResult;
+}

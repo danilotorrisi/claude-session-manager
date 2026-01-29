@@ -171,6 +171,10 @@ export function SessionList({
                 <Text color={colors.danger} bold backgroundColor={rowBg}>{"◈ waiting"}</Text>
               ) : session.claudeState === "idle" ? (
                 <Text color={colors.success} backgroundColor={rowBg}>{"◇ idle"}</Text>
+              ) : session.archived ? (
+                <Text color={colors.muted} dimColor backgroundColor={rowBg}>{"archived"}</Text>
+              ) : session.mergedAt ? (
+                <Text color={colors.success} backgroundColor={rowBg}>{"merged"}</Text>
               ) : (
                 <Text color={colors.mutedDark} dimColor backgroundColor={rowBg}>{"-"}</Text>
               )}

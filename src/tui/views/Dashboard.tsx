@@ -7,9 +7,10 @@ import type { Session } from "../../types";
 import type { AppState, AppAction } from "../types";
 import { nextTab } from "../types";
 import { killSession, getSessionName, sendToSession } from "../../lib/tmux";
-import { removeWorktree, loadSessionMetadata, deleteBranch } from "../../lib/worktree";
-import { exec } from "child_process";
-import { getDefaultRepo } from "../../lib/config";
+import { removeWorktree, loadSessionMetadata, deleteBranch, checkWorktreeClean, squashMergeToMain, generateCommitMessage, getWorktreePath } from "../../lib/worktree";
+import { exec as cpExec } from "child_process";
+import { exec as sshExec } from "../../lib/ssh";
+import { getDefaultRepo, saveArchivedSession } from "../../lib/config";
 import { cleanupStateFile } from "../../lib/claude-state";
 import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal } from "../index";
 import { colors } from "../theme";
@@ -62,6 +63,15 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   const { exit } = useApp();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [confirmKill, setConfirmKill] = useState<string | null>(null);
+  const [mergeState, setMergeState] = useState<
+    | { phase: "idle" }
+    | { phase: "confirm"; sessionName: string }
+    | { phase: "generating"; sessionName: string }
+    | { phase: "editing"; sessionName: string }
+    | { phase: "merging"; sessionName: string }
+  >({ phase: "idle" });
+  const [commitMessage, setCommitMessage] = useState("");
+  const [pendingArchive, setPendingArchive] = useState<string | null>(null);
   const [previewSession, setPreviewSession] = useState<Session | null>(null);
   const [replyMode, setReplyMode] = useState(false);
   const [replyText, setReplyText] = useState("");
@@ -148,6 +158,136 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
     }
   }, [confirmKill, dispatch, onRefresh]);
 
+  const handleMerge = useCallback(async (session: Session) => {
+    if (session.archived) {
+      dispatch({ type: "SET_MESSAGE", message: "Cannot merge an archived session" });
+      return;
+    }
+
+    if (mergeState.phase === "idle") {
+      // First press: check worktree is clean and has commits
+      const wtPath = session.worktreePath || await getWorktreePath(session.name);
+      const clean = await checkWorktreeClean(wtPath);
+      if (!clean) {
+        dispatch({ type: "SET_MESSAGE", message: `Session has uncommitted changes — commit first` });
+        return;
+      }
+      setMergeState({ phase: "confirm", sessionName: session.name });
+      dispatch({ type: "SET_MESSAGE", message: `Press 'm' again to merge "${session.name}" into main` });
+      return;
+    }
+
+    if (mergeState.phase === "confirm" && mergeState.sessionName === session.name) {
+      // Second press: generate commit message
+      setMergeState({ phase: "generating", sessionName: session.name });
+      dispatch({ type: "SET_MESSAGE", message: `Generating commit message...` });
+
+      try {
+        const wtPath = session.worktreePath || await getWorktreePath(session.name);
+
+        // Fetch first so origin/main is up to date
+        await sshExec(`git -C "${wtPath}" fetch origin`);
+
+        const result = await generateCommitMessage(wtPath);
+        if (!result.success) {
+          dispatch({ type: "SET_MESSAGE", message: result.message });
+          setMergeState({ phase: "idle" });
+          return;
+        }
+
+        setCommitMessage(result.message);
+        setMergeState({ phase: "editing", sessionName: session.name });
+        dispatch({ type: "SET_MESSAGE", message: `Edit commit message, Enter to merge, Esc to cancel` });
+      } catch (error) {
+        dispatch({
+          type: "SET_ERROR",
+          error: error instanceof Error ? error.message : "Failed to generate commit message",
+        });
+        setMergeState({ phase: "idle" });
+      }
+    }
+  }, [mergeState, dispatch]);
+
+  const handleCommitSubmit = useCallback(async (text: string) => {
+    if (!text.trim()) {
+      dispatch({ type: "SET_MESSAGE", message: "Commit message cannot be empty" });
+      return;
+    }
+    if (mergeState.phase !== "editing") return;
+
+    const sessionName = mergeState.sessionName;
+    const session = orderedSessions.find((s) => s.name === sessionName);
+    if (!session) return;
+
+    setMergeState({ phase: "merging", sessionName });
+    dispatch({ type: "SET_MESSAGE", message: `Merging "${sessionName}" into main...` });
+
+    try {
+      const wtPath = session.worktreePath || await getWorktreePath(sessionName);
+      const result = await squashMergeToMain(wtPath, text.trim());
+
+      if (!result.success) {
+        dispatch({ type: "SET_ERROR", error: `Merge failed: ${result.stderr}` });
+        setMergeState({ phase: "idle" });
+        return;
+      }
+
+      session.mergedAt = new Date().toISOString();
+      setMergeState({ phase: "idle" });
+      setCommitMessage("");
+      setPendingArchive(sessionName);
+      dispatch({ type: "SET_MESSAGE", message: `Merged! Archive session? [y/n]` });
+    } catch (error) {
+      dispatch({
+        type: "SET_ERROR",
+        error: error instanceof Error ? error.message : "Failed to merge",
+      });
+      setMergeState({ phase: "idle" });
+    }
+  }, [mergeState, orderedSessions, dispatch]);
+
+  const handleArchive = useCallback(async (session: Session) => {
+    try {
+      const metadata = await loadSessionMetadata(session.name);
+      const repoPath = metadata?.repoPath || (await getDefaultRepo());
+
+      // Save to archived sessions storage
+      await saveArchivedSession({
+        name: session.name,
+        branchName: metadata?.branchName || "",
+        repoPath: repoPath || "",
+        projectName: session.projectName,
+        linearIssue: session.linearIssue,
+        createdAt: session.created,
+        mergedAt: session.mergedAt || new Date().toISOString(),
+        archivedAt: new Date().toISOString(),
+      });
+
+      // Kill tmux session
+      await killSession(session.name);
+
+      // Remove worktree and delete branch
+      if (repoPath) {
+        await removeWorktree(session.name, repoPath);
+        if (metadata?.branchName) {
+          await deleteBranch(metadata.branchName, repoPath);
+        }
+      }
+
+      // Clean up Claude state file
+      cleanupStateFile(session.name);
+
+      setPendingArchive(null);
+      dispatch({ type: "SET_MESSAGE", message: `Session "${session.name}" archived` });
+      await onRefresh();
+    } catch (error) {
+      dispatch({
+        type: "SET_ERROR",
+        error: error instanceof Error ? error.message : "Failed to archive session",
+      });
+    }
+  }, [dispatch, onRefresh]);
+
   const handleInfo = useCallback((session: Session) => {
     dispatch({ type: "SELECT_SESSION", session });
     dispatch({ type: "SET_VIEW", view: "detail" });
@@ -179,16 +319,21 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
     setTimeout(() => setReplyMode(false), 50);
   }, [previewSession, dispatch]);
 
-  // Esc handling always active (to exit reply mode)
+  const isEditing = mergeState.phase === "editing";
+
+  // Esc handling always active (to exit reply mode or editing mode)
   useInput((_input, key) => {
     if (key.escape) {
       setReplyMode(false);
       setReplyText("");
       setPreviewSession(null);
       setConfirmKill(null);
+      setMergeState({ phase: "idle" });
+      setCommitMessage("");
+      setPendingArchive(null);
       dispatch({ type: "CLEAR_MESSAGE" });
     }
-  }, { isActive: replyMode });
+  }, { isActive: replyMode || isEditing });
 
   // All other keybindings disabled during reply mode
   useInput((input, _key) => {
@@ -211,24 +356,38 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       handleKill(orderedSessions[selectedIndex]);
     } else if (input === "t" && orderedSessions[selectedIndex]) {
       handleAttachTerminal(orderedSessions[selectedIndex]);
+    } else if (input === "m" && orderedSessions[selectedIndex]) {
+      handleMerge(orderedSessions[selectedIndex]);
+    } else if (input === "y" && pendingArchive) {
+      const session = orderedSessions.find((s) => s.name === pendingArchive);
+      if (session) handleArchive(session);
+    } else if (input === "n" && pendingArchive) {
+      setPendingArchive(null);
+      dispatch({ type: "SET_MESSAGE", message: "Archive skipped — session kept with [merged] tag" });
     } else if (input === "f" && orderedSessions[selectedIndex]) {
       const session = orderedSessions[selectedIndex];
       if (session.worktreePath) {
-        exec(`open "${session.worktreePath}"`);
+        cpExec(`open "${session.worktreePath}"`);
       } else {
         dispatch({ type: "SET_MESSAGE", message: `No worktree path for "${session.name}"` });
       }
     } else if (_key.escape) {
       setPreviewSession(null);
       setConfirmKill(null);
+      setMergeState({ phase: "idle" });
+      setCommitMessage("");
+      setPendingArchive(null);
       dispatch({ type: "CLEAR_MESSAGE" });
     }
-  }, { isActive: !replyMode });
+  }, { isActive: !replyMode && !isEditing });
 
   // Reset confirm state when selection changes
   const handleSelect = (index: number) => {
     if (index !== selectedIndex) {
       setConfirmKill(null);
+      setMergeState({ phase: "idle" });
+      setCommitMessage("");
+      setPendingArchive(null);
       setPreviewSession(null);
       setReplyMode(false);
       setReplyText("");
@@ -250,7 +409,7 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       <SessionList
         sessions={orderedSessions}
         selectedIndex={selectedIndex}
-        inputActive={!replyMode}
+        inputActive={!replyMode && !isEditing}
         onSelect={handleSelect}
         onActivate={handleAttach}
         onPreview={handlePreview}
@@ -308,6 +467,25 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
             {" — "}
             <Text color={colors.accent}>{feedbackNotification.reportUrl}</Text>
           </Text>
+        </Box>
+      )}
+      {mergeState.phase === "generating" && (
+        <Box marginX={1} paddingX={2}>
+          <Text color={colors.muted}>Generating commit message...</Text>
+        </Box>
+      )}
+      {mergeState.phase === "editing" && (
+        <Box marginX={1} paddingX={2} paddingY={0} flexDirection="column">
+          <Text color={colors.muted} dimColor>Commit message (Enter to merge, Esc to cancel):</Text>
+          <Box>
+            <Text color={colors.primary} bold>{"› "}</Text>
+            <TextInput
+              value={commitMessage}
+              onChange={setCommitMessage}
+              onSubmit={handleCommitSubmit}
+              placeholder="Enter commit message..."
+            />
+          </Box>
         </Box>
       )}
     </Box>

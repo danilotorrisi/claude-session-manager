@@ -54,6 +54,8 @@ export interface Session {
   projectName?: string;
   gitStats?: GitStats;
   feedbackReports?: FeedbackReport[];
+  archived?: boolean;
+  mergedAt?: string;
 }
 
 export interface CommandResult {
