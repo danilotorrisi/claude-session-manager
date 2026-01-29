@@ -1,5 +1,5 @@
 import { join } from "path";
-import type { CommandResult, LinearIssue } from "../types";
+import type { CommandResult, LinearIssue, FeedbackReport } from "../types";
 import { exec } from "./ssh";
 import { getWorktreeBase } from "./config";
 
@@ -9,6 +9,7 @@ interface SessionMetadata {
   createdAt: string;
   linearIssue?: LinearIssue;
   projectName?: string;
+  feedbackReports?: FeedbackReport[];
 }
 
 export function generateBranchName(sessionName: string): string {

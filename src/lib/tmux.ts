@@ -1,4 +1,4 @@
-import type { Session, CommandResult, LinearIssue, GitStats, GitFileChange } from "../types";
+import type { Session, CommandResult, LinearIssue, GitStats } from "../types";
 import { exec } from "./ssh";
 import { readClaudeStates, getLastAssistantMessage } from "./claude-state";
 import { getWorktreePath, loadSessionMetadata } from "./worktree";
@@ -81,6 +81,9 @@ export async function listSessions(hostName?: string): Promise<Session[]> {
       if (metadata?.projectName) {
         session.projectName = metadata.projectName;
       }
+      if (metadata?.feedbackReports?.length) {
+        session.feedbackReports = metadata.feedbackReports;
+      }
     } catch {
       // Skip metadata enrichment on error
     }
@@ -111,92 +114,6 @@ async function getGitStats(worktreePath: string): Promise<GitStats | undefined> 
   }
 }
 
-export async function getDetailedGitStats(worktreePath: string): Promise<GitStats | undefined> {
-  try {
-    // Run git diff --numstat and git status --porcelain in parallel
-    const [numstatResult, statusResult] = await Promise.all([
-      exec(`git -C "${worktreePath}" diff --numstat HEAD 2>/dev/null`),
-      exec(`git -C "${worktreePath}" status --porcelain 2>/dev/null`),
-    ]);
-
-    // Parse status flags: M=modified, A=added, D=deleted, R=renamed, ??=untracked
-    const statusMap = new Map<string, string>();
-    if (statusResult.stdout) {
-      for (const line of statusResult.stdout.split("\n").filter(Boolean)) {
-        const flag = line.slice(0, 2).trim();
-        const file = line.slice(3);
-        statusMap.set(file, flag);
-      }
-    }
-
-    const fileChanges: GitFileChange[] = [];
-    const trackedFiles = new Set<string>();
-
-    // Parse numstat for tracked file changes
-    if (numstatResult.stdout) {
-      for (const line of numstatResult.stdout.split("\n").filter(Boolean)) {
-        const parts = line.split("\t");
-        if (parts.length < 3) continue;
-        const [ins, del, file] = parts;
-        trackedFiles.add(file);
-        const insertions = ins === "-" ? 0 : parseInt(ins, 10);
-        const deletions = del === "-" ? 0 : parseInt(del, 10);
-
-        const flag = statusMap.get(file) || "M";
-        let status: GitFileChange["status"] = "modified";
-        if (flag === "A" || flag === "AM") status = "added";
-        else if (flag === "D") status = "deleted";
-        else if (flag.startsWith("R")) status = "renamed";
-
-        fileChanges.push({ file, insertions, deletions, status });
-      }
-    }
-
-    // Add untracked files (status "??")
-    for (const [file, flag] of statusMap) {
-      if (flag === "??" && !trackedFiles.has(file)) {
-        fileChanges.push({ file, insertions: 0, deletions: 0, status: "added" });
-      }
-    }
-
-    if (fileChanges.length === 0) return undefined;
-
-    const totalInsertions = fileChanges.reduce((s, f) => s + f.insertions, 0);
-    const totalDeletions = fileChanges.reduce((s, f) => s + f.deletions, 0);
-
-    return {
-      filesChanged: fileChanges.length,
-      insertions: totalInsertions,
-      deletions: totalDeletions,
-      fileChanges,
-    };
-  } catch {
-    return undefined;
-  }
-}
-
-export async function getFileDiff(worktreePath: string, filePath: string): Promise<string[]> {
-  try {
-    // Try tracked file diff first
-    const result = await exec(
-      `git -C "${worktreePath}" diff HEAD -- "${filePath}" 2>/dev/null`
-    );
-    if (result.stdout?.trim()) {
-      return result.stdout.split("\n");
-    }
-    // For untracked files, diff against /dev/null
-    const untrackedResult = await exec(
-      `git -C "${worktreePath}" diff --no-index /dev/null -- "${filePath}" 2>/dev/null || true`
-    );
-    if (untrackedResult.stdout?.trim()) {
-      return untrackedResult.stdout.split("\n");
-    }
-    return [];
-  } catch {
-    return [];
-  }
-}
-
 export async function sessionExists(
   name: string,
   hostName?: string
@@ -206,26 +123,77 @@ export async function sessionExists(
   return result.success;
 }
 
+const FEEDBACK_PROTOCOL = `
+# Feedback Loop Protocol
+
+When you complete a meaningful task, generate a feedback report before stopping.
+
+## What is a "meaningful task"?
+- Implementing a feature, fixing a bug, refactoring code, adding tests, making UI changes, infrastructure work
+- NOT: answering questions, reading files for context, planning without implementation, trivial formatting
+
+## Artifact capture (do this BEFORE writing the report)
+
+**For UI/frontend changes:**
+1. Take a screenshot of the relevant UI area BEFORE making changes (if feasible — use git stash or simply note the before state)
+2. After changes, navigate to the affected page and take screenshots using the browser tools
+3. Save screenshots to \`.csm/screenshots/\` with descriptive names (e.g., \`after-login-button.png\`)
+
+**For backend/API changes:**
+- Run tests and save output: \`bun test > .csm/logs/test-output.txt 2>&1\`
+- Capture relevant API responses or logs to \`.csm/logs/\`
+
+**For all changes:**
+- Run \`git diff --stat > .csm/logs/git-stats.txt\`
+- Identify the 2-3 most important changed files for inline diff snippets
+
+## Report generation
+
+Create \`.csm/feedback-report.html\` using this structure:
+- **Header**: Task title, session name, branch, timestamp, Linear issue link (if any)
+- **Summary**: 2-3 sentences on what was accomplished
+- **Stats**: Files changed, insertions, deletions
+- **Artifacts**: Screenshots (as \`<img src="./screenshots/filename.png">\`), test output, key diffs
+- **Testing**: How this was verified
+- **Next steps**: What remains or what the user should review
+
+Use clean, responsive HTML with inline CSS. Reference screenshots via relative paths.
+
+End your response with the marker: \`<!-- CSM_TASK_COMPLETE -->\`
+
+For **failed tasks**, still generate a report documenting what was attempted, what failed, and suggested fixes. Use marker: \`<!-- CSM_TASK_FAILED -->\`
+
+For **multi-step tasks**, only generate the report when ALL steps are complete.
+
+If the task is trivial (< 5 lines changed, typo fix), skip the report.
+`;
+
 export async function writeClaudeContext(
   workingDir: string,
-  issue: LinearIssue,
+  issue?: LinearIssue,
   hostName?: string
 ): Promise<void> {
-  const lines = [
-    `# Linear Issue: ${issue.identifier}`,
-    `**Title:** ${issue.title}`,
-    ...(issue.state ? [`**Status:** ${issue.state}`] : []),
-    `**URL:** ${issue.url}`,
-    "",
-  ];
+  const lines: string[] = [];
 
-  if (issue.description) {
-    lines.push("## Description", issue.description, "");
+  if (issue) {
+    lines.push(
+      `# Linear Issue: ${issue.identifier}`,
+      `**Title:** ${issue.title}`,
+      ...(issue.state ? [`**Status:** ${issue.state}`] : []),
+      `**URL:** ${issue.url}`,
+      ""
+    );
+
+    if (issue.description) {
+      lines.push("## Description", issue.description, "");
+    }
+
+    lines.push(
+      'When the user refers to "the issue", "the card", "the bug", or "the task", they are referring to this Linear issue.'
+    );
   }
 
-  lines.push(
-    'When the user refers to "the issue", "the card", "the bug", or "the task", they are referring to this Linear issue.'
-  );
+  lines.push("", FEEDBACK_PROTOCOL);
 
   const content = lines.join("\n");
   const escaped = content.replace(/'/g, "'\\''");
@@ -240,10 +208,8 @@ export async function createSession(
 ): Promise<CommandResult> {
   const sessionName = getSessionName(name);
 
-  // Write CLAUDE.md with Linear issue context if provided
-  if (linearIssue) {
-    await writeClaudeContext(workingDir, linearIssue, hostName);
-  }
+  // Write CLAUDE.md with feedback protocol (and Linear issue context if provided)
+  await writeClaudeContext(workingDir, linearIssue, hostName);
 
   // Create detached tmux session with a login shell, then run claude
   // Using a login shell ensures proper environment (PATH, etc.)

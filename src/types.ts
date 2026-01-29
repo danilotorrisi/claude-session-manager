@@ -29,18 +29,15 @@ export interface Config {
   projects?: Project[];
 }
 
-export interface GitFileChange {
-  file: string;
-  insertions: number;
-  deletions: number;
-  status: 'modified' | 'added' | 'deleted' | 'renamed';
-}
-
 export interface GitStats {
   filesChanged: number;
   insertions: number;
   deletions: number;
-  fileChanges?: GitFileChange[];
+}
+
+export interface FeedbackReport {
+  url: string;
+  timestamp: string;
 }
 
 export interface Session {
@@ -56,6 +53,7 @@ export interface Session {
   linearIssue?: LinearIssue;
   projectName?: string;
   gitStats?: GitStats;
+  feedbackReports?: FeedbackReport[];
 }
 
 export interface CommandResult {

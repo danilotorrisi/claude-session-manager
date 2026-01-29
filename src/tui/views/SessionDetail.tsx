@@ -269,6 +269,27 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
         )}
       </Box>
 
+      {/* Feedback Reports section */}
+      {session.feedbackReports && session.feedbackReports.length > 0 && (
+        <Box marginTop={1} flexDirection="column">
+          <Box marginBottom={1}>
+            <Text bold backgroundColor={colors.warning} color={colors.textBright}>
+              {" Reports "}
+            </Text>
+          </Box>
+          {session.feedbackReports.map((report, i) => (
+            <Box key={i} marginBottom={0}>
+              <Box width={16}>
+                <Text color={colors.muted}>
+                  {new Date(report.timestamp).toLocaleString()}
+                </Text>
+              </Box>
+              <Text color={colors.accent}>{report.url}</Text>
+            </Box>
+          ))}
+        </Box>
+      )}
+
       {/* Actions section */}
       <Box marginTop={1} flexDirection="column">
         <Box marginBottom={1}>

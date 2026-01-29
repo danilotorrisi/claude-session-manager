@@ -1,19 +1,19 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { Box, Text, useInput, useApp } from "ink";
 import TextInput from "ink-text-input";
 import { SessionList } from "../components/SessionList";
 import { StatusBar } from "../components/StatusBar";
-import { GitChangesPanel } from "../components/GitChangesPanel";
-import type { Session, GitStats } from "../../types";
+import type { Session } from "../../types";
 import type { AppState, AppAction } from "../types";
 import { nextTab } from "../types";
-import { killSession, getSessionName, sendToSession, getDetailedGitStats, getFileDiff } from "../../lib/tmux";
+import { killSession, getSessionName, sendToSession } from "../../lib/tmux";
 import { removeWorktree, loadSessionMetadata, deleteBranch } from "../../lib/worktree";
 import { exec } from "child_process";
 import { getDefaultRepo } from "../../lib/config";
 import { cleanupStateFile } from "../../lib/claude-state";
 import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal } from "../index";
 import { colors } from "../theme";
+import { readFileSync, readdirSync, unlinkSync } from "fs";
 
 interface DashboardProps {
   state: AppState;
@@ -32,6 +32,32 @@ function groupSessionsByProject(sessions: Session[]): Map<string | null, Session
   return groups;
 }
 
+interface FeedbackNotification {
+  reportUrl: string;
+  sessionName: string;
+  timestamp: string;
+}
+
+function pollNotifications(): FeedbackNotification[] {
+  const dir = "/tmp/csm-notifications";
+  try {
+    const files = readdirSync(dir).filter((f) => f.endsWith(".json"));
+    const notifications: FeedbackNotification[] = [];
+    for (const file of files) {
+      try {
+        const data = JSON.parse(readFileSync(`${dir}/${file}`, "utf-8"));
+        notifications.push(data);
+        unlinkSync(`${dir}/${file}`);
+      } catch {
+        // skip malformed notifications
+      }
+    }
+    return notifications;
+  } catch {
+    return [];
+  }
+}
+
 export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   const { exit } = useApp();
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -39,12 +65,20 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   const [previewSession, setPreviewSession] = useState<Session | null>(null);
   const [replyMode, setReplyMode] = useState(false);
   const [replyText, setReplyText] = useState("");
-  const [detailedGitStats, setDetailedGitStats] = useState<GitStats | null>(null);
-  const [loadingGitDetails, setLoadingGitDetails] = useState(false);
-  const [selectedFileIndex, setSelectedFileIndex] = useState(0);
-  const [diffLines, setDiffLines] = useState<string[] | null>(null);
-  const [diffScrollOffset, setDiffScrollOffset] = useState(0);
-  const [loadingDiff, setLoadingDiff] = useState(false);
+  const [feedbackNotification, setFeedbackNotification] = useState<FeedbackNotification | null>(null);
+
+  // Poll for feedback report notifications
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const notifications = pollNotifications();
+      if (notifications.length > 0) {
+        // Show the most recent notification
+        setFeedbackNotification(notifications[notifications.length - 1]);
+        onRefresh();
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [onRefresh]);
 
   // Compute grouped sessions for display
   const sessionGroups = groupSessionsByProject(state.sessions);
@@ -124,25 +158,7 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       if (prev?.name === session.name) {
         setReplyMode(false);
         setReplyText("");
-        setDetailedGitStats(null);
-        setSelectedFileIndex(0);
-        setDiffLines(null);
-        setDiffScrollOffset(0);
         return null;
-      }
-      // Lazily fetch detailed git stats when preview opens
-      setDetailedGitStats(null);
-      setSelectedFileIndex(0);
-      setDiffLines(null);
-      setDiffScrollOffset(0);
-      if (session.worktreePath) {
-        setLoadingGitDetails(true);
-        getDetailedGitStats(session.worktreePath).then((stats) => {
-          setDetailedGitStats(stats ?? null);
-          setLoadingGitDetails(false);
-        }).catch(() => {
-          setLoadingGitDetails(false);
-        });
       }
       return session;
     });
@@ -169,72 +185,13 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       setReplyMode(false);
       setReplyText("");
       setPreviewSession(null);
-      setDetailedGitStats(null);
-      setSelectedFileIndex(0);
-      setDiffLines(null);
-      setDiffScrollOffset(0);
       setConfirmKill(null);
       dispatch({ type: "CLEAR_MESSAGE" });
     }
   }, { isActive: replyMode });
 
-  const fileChanges = detailedGitStats?.fileChanges;
-  const hasFileChanges = previewSession && fileChanges && fileChanges.length > 0;
-
-  const openDiffForFile = useCallback((index: number) => {
-    if (!previewSession?.worktreePath || !fileChanges) return;
-    const file = fileChanges[index];
-    if (!file) return;
-    setLoadingDiff(true);
-    setDiffLines([]);
-    setDiffScrollOffset(0);
-    getFileDiff(previewSession.worktreePath, file.file)
-      .then((lines) => {
-        setDiffLines(lines);
-        setLoadingDiff(false);
-      })
-      .catch(() => {
-        setDiffLines([]);
-        setLoadingDiff(false);
-      });
-  }, [previewSession, fileChanges]);
-
   // All other keybindings disabled during reply mode
   useInput((input, _key) => {
-    // File list / diff navigation when preview is open with file changes
-    if (hasFileChanges && !replyMode) {
-      if (diffLines !== null) {
-        // Diff view mode: scroll or escape back
-        if (_key.upArrow) {
-          setDiffScrollOffset((o) => Math.max(0, o - 1));
-          return;
-        }
-        if (_key.downArrow) {
-          setDiffScrollOffset((o) => Math.min(diffLines.length - 1, o + 1));
-          return;
-        }
-        if (_key.escape || _key.leftArrow) {
-          setDiffLines(null);
-          setDiffScrollOffset(0);
-          return;
-        }
-      } else {
-        // File list mode: navigate or open diff
-        if (_key.upArrow) {
-          setSelectedFileIndex((i) => Math.max(0, i - 1));
-          return;
-        }
-        if (_key.downArrow) {
-          setSelectedFileIndex((i) => Math.min(fileChanges!.length - 1, i + 1));
-          return;
-        }
-        if (_key.rightArrow || input === "d") {
-          openDiffForFile(selectedFileIndex);
-          return;
-        }
-      }
-    }
-
     if (_key.tab && !replyMode) {
       dispatch({ type: "SET_TAB", tab: nextTab(state.activeTab) });
       return;
@@ -263,10 +220,6 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       }
     } else if (_key.escape) {
       setPreviewSession(null);
-      setDetailedGitStats(null);
-      setSelectedFileIndex(0);
-      setDiffLines(null);
-      setDiffScrollOffset(0);
       setConfirmKill(null);
       dispatch({ type: "CLEAR_MESSAGE" });
     }
@@ -277,10 +230,6 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
     if (index !== selectedIndex) {
       setConfirmKill(null);
       setPreviewSession(null);
-      setDetailedGitStats(null);
-      setSelectedFileIndex(0);
-      setDiffLines(null);
-      setDiffScrollOffset(0);
       setReplyMode(false);
       setReplyText("");
     }
@@ -308,56 +257,30 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
         onInfo={handleInfo}
         sessionGroups={sessionGroups}
       />
-      {previewSession && (
+      {previewSession?.claudeLastMessage && (
         <Box
+          flexDirection="column"
           borderStyle="round"
           borderColor={colors.cardBorder}
           paddingX={2}
           paddingY={0}
           marginX={1}
         >
-          {/* Left side: last message */}
-          <Box flexDirection="column" width="50%">
-            <Box>
-              <Text color={colors.muted} bold>{previewSession.name}</Text>
-              <Text color={colors.muted}>{" — last message:"}</Text>
+          <Box>
+            <Text color={colors.muted} bold>{previewSession.name}</Text>
+            <Text color={colors.muted}>{" — last message:"}</Text>
+          </Box>
+          <Text color={colors.text} wrap="wrap">{previewSession.claudeLastMessage}</Text>
+          {!replyMode && (
+            <Box marginTop={1}>
+              <Text color={colors.muted} dimColor>Press [r] to reply</Text>
             </Box>
-            {previewSession.claudeLastMessage ? (
-              <Text color={colors.text} wrap="wrap">{previewSession.claudeLastMessage}</Text>
-            ) : (
-              <Text color={colors.muted} dimColor>No last message available</Text>
-            )}
-            {!replyMode && (
-              <Box marginTop={1}>
-                <Text color={colors.muted} dimColor>Press [r] to reply</Text>
-              </Box>
-            )}
-          </Box>
-
-          {/* Vertical separator */}
-          <Box flexDirection="column" marginX={1}>
-            <Text color={colors.separator}>│</Text>
-          </Box>
-
-          {/* Right side: git changes */}
-          <Box flexDirection="column" width="50%">
-            {loadingGitDetails ? (
-              <Text color={colors.muted} dimColor>Loading git changes…</Text>
-            ) : detailedGitStats?.fileChanges ? (
-              <GitChangesPanel
-                changes={detailedGitStats.fileChanges}
-                selectedFileIndex={selectedFileIndex}
-                diffLines={diffLines}
-                diffScrollOffset={diffScrollOffset}
-                loadingDiff={loadingDiff}
-              />
-            ) : (
-              <Box flexDirection="column">
-                <Text color={colors.muted} bold>Git Changes</Text>
-                <Text color={colors.muted} dimColor>No changes</Text>
-              </Box>
-            )}
-          </Box>
+          )}
+        </Box>
+      )}
+      {previewSession && !previewSession.claudeLastMessage && (
+        <Box paddingX={2}>
+          <Text color={colors.muted} dimColor>No last message available for {previewSession.name}</Text>
         </Box>
       )}
       {replyMode && previewSession && (
@@ -369,6 +292,22 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
             onSubmit={handleReplySubmit}
             placeholder="Type a reply and press Enter..."
           />
+        </Box>
+      )}
+      {feedbackNotification && (
+        <Box
+          marginX={1}
+          paddingX={2}
+          paddingY={0}
+          borderStyle="round"
+          borderColor={colors.success}
+        >
+          <Text color={colors.success} bold>{"📋 "}</Text>
+          <Text color={colors.text}>
+            Feedback report ready for <Text bold>{feedbackNotification.sessionName}</Text>
+            {" — "}
+            <Text color={colors.accent}>{feedbackNotification.reportUrl}</Text>
+          </Text>
         </Box>
       )}
     </Box>
