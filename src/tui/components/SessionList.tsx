@@ -80,6 +80,8 @@ export function SessionList({
     });
   }
 
+  const hasAnyHost = sessions.some((s) => s.host);
+
   return (
     <Box flexDirection="column" paddingX={1}>
       {/* Header row */}
@@ -92,6 +94,13 @@ export function SessionList({
             SESSION
           </Text>
         </Box>
+        {hasAnyHost && (
+          <Box width={12}>
+            <Text color={colors.muted} bold>
+              HOST
+            </Text>
+          </Box>
+        )}
         <Box width={14}>
           <Text color={colors.muted} bold>
             STATUS
@@ -140,7 +149,7 @@ export function SessionList({
         const textColor = isSelected ? colors.textBright : colors.text;
 
         return (
-          <Box key={session.fullName} backgroundColor={rowBg}>
+          <Box key={`${session.host || "local"}:${session.fullName}`} backgroundColor={rowBg}>
             <Box width={3}>
               {isSelected ? (
                 <Text backgroundColor={colors.primary} color={colors.textBright} bold>{"›"}</Text>
@@ -157,6 +166,13 @@ export function SessionList({
                 {session.name.slice(0, 16)}
               </Text>
             </Box>
+            {hasAnyHost && (
+              <Box width={12}>
+                <Text color={colors.muted} dimColor backgroundColor={rowBg}>
+                  {session.host ? `@${session.host.slice(0, 10)}` : ""}
+                </Text>
+              </Box>
+            )}
             {session.linearIssue && (
               <Box width={12}>
                 <Text color={colors.accent} backgroundColor={rowBg}>

@@ -14,6 +14,7 @@ export interface LinearIssue {
 export interface HostConfig {
   host: string;
   defaultRepo?: string;
+  projectsBase?: string;
 }
 
 export interface Project {
@@ -27,6 +28,7 @@ export interface Config {
   hosts: Record<string, HostConfig>;
   linearApiKey?: string;
   projects?: Project[];
+  projectsBase?: string;
 }
 
 export interface GitStats {
@@ -54,6 +56,7 @@ export interface Session {
   attached: boolean;
   windows: number;
   created: string;
+  host?: string;
   worktreePath?: string;
   title?: string; // Claude Code session title (from tmux pane_title)
   claudeState?: "idle" | "working" | "waiting_for_input";

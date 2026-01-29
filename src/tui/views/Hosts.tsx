@@ -5,7 +5,7 @@ import type { AppState, AppAction } from "../types";
 import { nextTab } from "../types";
 import type { HostConfig } from "../../types";
 import { addHost, deleteHost, updateHost } from "../../lib/config";
-import { testConnection } from "../../lib/ssh";
+import { testConnection, installHooks } from "../../lib/ssh";
 import { colors } from "../theme";
 
 interface HostsProps {
@@ -83,10 +83,19 @@ export function Hosts({ state, dispatch, onReloadHosts }: HostsProps) {
     await onReloadHosts();
     resetForm();
     setMode("list");
-    dispatch({
-      type: "SET_MESSAGE",
-      message: mode === "create" ? `Host "${name}" created` : `Host "${name}" updated`,
-    });
+
+    if (mode === "create") {
+      dispatch({ type: "SET_MESSAGE", message: `Host "${name}" created. Installing hooks...` });
+      const hookResult = await installHooks(name);
+      dispatch({
+        type: "SET_MESSAGE",
+        message: hookResult.success
+          ? `Host "${name}" created. ${hookResult.stdout}`
+          : `Host "${name}" created but hook install failed: ${hookResult.stderr}`,
+      });
+    } else {
+      dispatch({ type: "SET_MESSAGE", message: `Host "${name}" updated` });
+    }
   }, [fieldName, fieldHost, fieldRepo, mode, state.hosts, editingKey, dispatch, onReloadHosts]);
 
   const handleDelete = useCallback(
@@ -119,6 +128,20 @@ export function Hosts({ state, dispatch, onReloadHosts }: HostsProps) {
     [dispatch]
   );
 
+  const handleInstallHooks = useCallback(
+    async (name: string) => {
+      dispatch({ type: "SET_MESSAGE", message: `Installing hooks on "${name}"...` });
+      const result = await installHooks(name);
+      dispatch({
+        type: "SET_MESSAGE",
+        message: result.success
+          ? result.stdout
+          : `Failed to install hooks on "${name}": ${result.stderr}`,
+      });
+    },
+    [dispatch]
+  );
+
   // List mode input
   useInput(
     (input, key) => {
@@ -144,6 +167,8 @@ export function Hosts({ state, dispatch, onReloadHosts }: HostsProps) {
         handleDelete(hostEntries[selectedIndex][0]);
       } else if (input === "t" && hostEntries[selectedIndex]) {
         handleTest(hostEntries[selectedIndex][0]);
+      } else if (input === "i" && hostEntries[selectedIndex]) {
+        handleInstallHooks(hostEntries[selectedIndex][0]);
       } else if (key.upArrow) {
         setSelectedIndex((i) => Math.max(0, i - 1));
         setConfirmDelete(null);

@@ -251,6 +251,13 @@ export async function squashMergeToMain(
     return fetchResult;
   }
 
+  // Merge origin/main into the branch so HEAD^{tree} includes all main changes.
+  // Without this, any features merged to main after the branch forked would be lost.
+  const mergeResult = await exec(`git -C "${worktreePath}" merge origin/main --no-edit`, hostName);
+  if (!mergeResult.success) {
+    return mergeResult;
+  }
+
   // Create a single commit with the session's tree, parented to origin/main
   const escapedMessage = commitMessage.replace(/'/g, "'\\''");
   const commitTreeResult = await exec(

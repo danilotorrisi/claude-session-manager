@@ -1,5 +1,5 @@
 import type { CreateOptions } from "../types";
-import { getDefaultRepo, expandTilde } from "../lib/config";
+import { getDefaultRepo, loadConfig, resolveProjectPath } from "../lib/config";
 import { sessionExists, createSession } from "../lib/tmux";
 import { exec } from "../lib/ssh";
 import {
@@ -41,7 +41,8 @@ export async function create(name: string, options: CreateOptions): Promise<void
   }
 
   // Get repository path
-  const repoPath = (repo ? expandTilde(repo) : null) || (await getDefaultRepo(host));
+  const config = await loadConfig();
+  const repoPath = (repo ? resolveProjectPath(repo, config, host) : null) || (await getDefaultRepo(host));
   if (!repoPath) {
     console.error("Error: No repository specified. Use --repo or set defaultRepo in config");
     process.exit(1);

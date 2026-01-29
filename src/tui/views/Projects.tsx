@@ -1,10 +1,10 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import { Box, Text, useInput, useApp } from "ink";
 import TextInput from "ink-text-input";
 import type { AppState, AppAction } from "../types";
 import { nextTab } from "../types";
 import type { Project } from "../../types";
-import { addProject, deleteProject, renameProject, expandTilde } from "../../lib/config";
+import { addProject, deleteProject, renameProject, loadConfig, getProjectsBase } from "../../lib/config";
 import { colors } from "../theme";
 
 interface ProjectsProps {
@@ -32,6 +32,16 @@ export function Projects({ state, dispatch, onReloadProjects }: ProjectsProps) {
   const [renameName, setRenameName] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
 
+  // Projects base
+  const [projectsBase, setProjectsBase] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadConfig().then((cfg) => {
+      const base = getProjectsBase(cfg);
+      setProjectsBase(base || null);
+    });
+  }, []);
+
   const projects = state.projects;
 
   const handleCreate = useCallback(async () => {
@@ -45,7 +55,7 @@ export function Projects({ state, dispatch, onReloadProjects }: ProjectsProps) {
     }
     const project: Project = {
       name: createName.trim(),
-      repoPath: expandTilde(createPath.trim()),
+      repoPath: createPath.trim(),
     };
     await addProject(project);
     await onReloadProjects();
@@ -265,13 +275,18 @@ export function Projects({ state, dispatch, onReloadProjects }: ProjectsProps) {
                 <TextInput
                   value={createPath}
                   onChange={setCreatePath}
-                  placeholder="/path/to/repo"
+                  placeholder={projectsBase ? "org/repo-name" : "/path/to/repo"}
                 />
               ) : (
-                <Text>{createPath || <Text color={colors.muted}>/path/to/repo</Text>}</Text>
+                <Text>{createPath || <Text color={colors.muted}>{projectsBase ? "org/repo-name" : "/path/to/repo"}</Text>}</Text>
               )}
             </Box>
           </Box>
+          {projectsBase && (
+            <Text color={colors.muted} dimColor>
+              base: {projectsBase}/
+            </Text>
+          )}
         </Box>
 
         <Box marginTop={1} paddingX={1}>
@@ -286,6 +301,11 @@ export function Projects({ state, dispatch, onReloadProjects }: ProjectsProps) {
   // List mode
   return (
     <Box flexDirection="column" paddingX={1} paddingY={1}>
+      {projectsBase && (
+        <Box paddingX={1} marginBottom={1}>
+          <Text color={colors.muted}>Projects base: {projectsBase}/</Text>
+        </Box>
+      )}
       {projects.length === 0 ? (
         <Box paddingX={1}>
           <Text color={colors.muted}>No projects configured. Press [c] to create one.</Text>

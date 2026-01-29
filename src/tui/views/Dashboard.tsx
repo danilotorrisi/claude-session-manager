@@ -13,7 +13,7 @@ import { exec as cpExec } from "child_process";
 import { exec as sshExec } from "../../lib/ssh";
 import { getDefaultRepo, saveArchivedSession } from "../../lib/config";
 import { cleanupStateFile } from "../../lib/claude-state";
-import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal } from "../index";
+import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal, exitTuiAndAttachRemote } from "../index";
 import { colors } from "../theme";
 import { readFileSync, readdirSync, unlinkSync } from "fs";
 
@@ -66,10 +66,10 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   const [confirmKill, setConfirmKill] = useState<string | null>(null);
   const [mergeState, setMergeState] = useState<
     | { phase: "idle" }
-    | { phase: "confirm"; sessionName: string }
-    | { phase: "generating"; sessionName: string }
-    | { phase: "editing"; sessionName: string }
-    | { phase: "merging"; sessionName: string }
+    | { phase: "confirm"; sessionName: string; hostName?: string }
+    | { phase: "generating"; sessionName: string; hostName?: string }
+    | { phase: "editing"; sessionName: string; hostName?: string }
+    | { phase: "merging"; sessionName: string; hostName?: string }
   >({ phase: "idle" });
   const [commitMessage, setCommitMessage] = useState("");
   const [pendingArchive, setPendingArchive] = useState<string | null>(null);
@@ -117,14 +117,22 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   }
 
   const handleAttach = useCallback(async (session: Session) => {
-    // Exit TUI, attach to tmux session with auto-return when Claude starts working
     const tmuxSessionName = getSessionName(session.name);
-    await exitTuiAndAttachAutoReturn(session.name, tmuxSessionName);
+    if (session.host) {
+      await exitTuiAndAttachRemote(tmuxSessionName, session.host);
+    } else {
+      // Exit TUI, attach to tmux session with auto-return when Claude starts working
+      await exitTuiAndAttachAutoReturn(session.name, tmuxSessionName);
+    }
   }, []);
 
   const handleAttachTerminal = useCallback(async (session: Session) => {
     const tmuxSessionName = getSessionName(session.name);
-    await exitTuiAndAttachTerminal(session.name, tmuxSessionName, session.worktreePath);
+    if (session.host) {
+      await exitTuiAndAttachRemote(tmuxSessionName, session.host);
+    } else {
+      await exitTuiAndAttachTerminal(session.name, tmuxSessionName, session.worktreePath);
+    }
   }, []);
 
   const handleKill = useCallback(async (session: Session) => {
@@ -138,17 +146,17 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
 
     try {
       // Load metadata for cleanup
-      const metadata = await loadSessionMetadata(session.name);
-      const repoPath = metadata?.repoPath || (await getDefaultRepo());
+      const metadata = await loadSessionMetadata(session.name, session.host);
+      const repoPath = metadata?.repoPath || (await getDefaultRepo(session.host));
 
       // Kill tmux session
-      await killSession(session.name);
+      await killSession(session.name, session.host);
 
       // Remove worktree if we have repo path
       if (repoPath) {
-        await removeWorktree(session.name, repoPath);
+        await removeWorktree(session.name, repoPath, session.host);
         if (metadata?.branchName) {
-          await deleteBranch(metadata.branchName, repoPath);
+          await deleteBranch(metadata.branchName, repoPath, session.host);
         }
       }
 
@@ -174,28 +182,28 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
     if (mergeState.phase === "idle") {
       // First press: check worktree is clean and has commits
       const wtPath = session.worktreePath || await getWorktreePath(session.name);
-      const clean = await checkWorktreeClean(wtPath);
+      const clean = await checkWorktreeClean(wtPath, session.host);
       if (!clean) {
         dispatch({ type: "SET_MESSAGE", message: `Session has uncommitted changes — commit first` });
         return;
       }
-      setMergeState({ phase: "confirm", sessionName: session.name });
+      setMergeState({ phase: "confirm", sessionName: session.name, hostName: session.host });
       dispatch({ type: "SET_MESSAGE", message: `Press 'm' again to merge "${session.name}" into main` });
       return;
     }
 
     if (mergeState.phase === "confirm" && mergeState.sessionName === session.name) {
       // Second press: generate commit message
-      setMergeState({ phase: "generating", sessionName: session.name });
+      setMergeState({ phase: "generating", sessionName: session.name, hostName: session.host });
       dispatch({ type: "SET_MESSAGE", message: `Generating commit message...` });
 
       try {
         const wtPath = session.worktreePath || await getWorktreePath(session.name);
 
         // Fetch first so origin/main is up to date
-        await sshExec(`git -C "${wtPath}" fetch origin`);
+        await sshExec(`git -C "${wtPath}" fetch origin`, session.host);
 
-        const result = await generateCommitMessage(wtPath);
+        const result = await generateCommitMessage(wtPath, session.host);
         if (!result.success) {
           dispatch({ type: "SET_MESSAGE", message: result.message });
           setMergeState({ phase: "idle" });
@@ -203,7 +211,7 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
         }
 
         setCommitMessage(result.message);
-        setMergeState({ phase: "editing", sessionName: session.name });
+        setMergeState({ phase: "editing", sessionName: session.name, hostName: session.host });
         dispatch({ type: "SET_MESSAGE", message: `Edit commit message, Enter to merge, Esc to cancel` });
       } catch (error) {
         dispatch({
@@ -226,12 +234,13 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
     const session = orderedSessions.find((s) => s.name === sessionName);
     if (!session) return;
 
-    setMergeState({ phase: "merging", sessionName });
+    const hostName = mergeState.hostName;
+    setMergeState({ phase: "merging", sessionName, hostName });
     dispatch({ type: "SET_MESSAGE", message: `Merging "${sessionName}" into main...` });
 
     try {
       const wtPath = session.worktreePath || await getWorktreePath(sessionName);
-      const result = await squashMergeToMain(wtPath, text.trim());
+      const result = await squashMergeToMain(wtPath, text.trim(), hostName);
 
       if (!result.success) {
         dispatch({ type: "SET_ERROR", error: `Merge failed: ${result.stderr}` });
@@ -255,8 +264,8 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
 
   const handleArchive = useCallback(async (session: Session) => {
     try {
-      const metadata = await loadSessionMetadata(session.name);
-      const repoPath = metadata?.repoPath || (await getDefaultRepo());
+      const metadata = await loadSessionMetadata(session.name, session.host);
+      const repoPath = metadata?.repoPath || (await getDefaultRepo(session.host));
 
       // Save to archived sessions storage
       await saveArchivedSession({
@@ -271,13 +280,13 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       });
 
       // Kill tmux session
-      await killSession(session.name);
+      await killSession(session.name, session.host);
 
       // Remove worktree and delete branch
       if (repoPath) {
-        await removeWorktree(session.name, repoPath);
+        await removeWorktree(session.name, repoPath, session.host);
         if (metadata?.branchName) {
-          await deleteBranch(metadata.branchName, repoPath);
+          await deleteBranch(metadata.branchName, repoPath, session.host);
         }
       }
 

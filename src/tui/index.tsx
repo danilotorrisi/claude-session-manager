@@ -2,6 +2,7 @@ import React from "react";
 import { render } from "ink";
 import { App } from "./App";
 import { getWorktreePath } from "../lib/worktree";
+import { getHost } from "../lib/config";
 import { realpathSync } from "fs";
 
 let instance: ReturnType<typeof render> | null = null;
@@ -171,6 +172,29 @@ export async function exitTuiAndAttachTerminal(sessionName: string, tmuxSessionN
   });
 
   // After detaching, restart TUI
+  process.stdout.write("\x1B[2J\x1B[H");
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  startTui();
+}
+
+export async function exitTuiAndAttachRemote(tmuxSessionName: string, hostName: string): Promise<void> {
+  const hostConfig = await getHost(hostName);
+  if (!hostConfig) return;
+
+  if (instance) {
+    instance.unmount();
+    instance = null;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  process.stdout.write("\x1B[2J\x1B[H");
+
+  const { spawnSync } = await import("child_process");
+  spawnSync("ssh", ["-t", hostConfig.host, `bash -lc 'TERM=xterm-256color tmux attach -t ${tmuxSessionName}'`], {
+    stdio: "inherit",
+    env: process.env,
+  });
+
   process.stdout.write("\x1B[2J\x1B[H");
   await new Promise((resolve) => setTimeout(resolve, 100));
   startTui();

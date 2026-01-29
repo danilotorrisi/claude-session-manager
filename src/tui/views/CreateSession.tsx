@@ -11,7 +11,7 @@ import {
   isWorktreeConflictError,
   cleanupStaleWorktree,
 } from "../../lib/worktree";
-import { getDefaultRepo, getLinearApiKey, expandTilde, getProjects } from "../../lib/config";
+import { getDefaultRepo, getLinearApiKey, getProjects, getHosts, loadConfig, resolveProjectPath, getProjectsBase } from "../../lib/config";
 import { searchIssues, listMyIssues } from "../../lib/linear";
 import { colors } from "../theme";
 
@@ -47,6 +47,11 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectSelectedIdx, setProjectSelectedIdx] = useState(0);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [projectsBase, setProjectsBase] = useState<string | null>(null);
+
+  // Host picker state
+  const [hostNames, setHostNames] = useState<string[]>([]);
+  const [hostSelectedIdx, setHostSelectedIdx] = useState(0);
 
   // Load default repo, Linear API key, and projects on mount
   useEffect(() => {
@@ -55,6 +60,13 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
     getProjects().then((p) => {
       setProjects(p);
       if (p.length > 0) setActiveField("project");
+    });
+    loadConfig().then((cfg) => {
+      const base = getProjectsBase(cfg);
+      setProjectsBase(base || null);
+    });
+    getHosts().then((hosts) => {
+      setHostNames(Object.keys(hosts));
     });
   }, []);
 
@@ -140,14 +152,15 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
       return;
     }
 
-    const repoPath = (repo.trim() ? expandTilde(repo.trim()) : null) || (selectedProject ? expandTilde(selectedProject.repoPath) : null) || defaultRepo;
+    const config = await loadConfig();
+    const hostName = host.trim() || undefined;
+    const repoPath = (repo.trim() ? resolveProjectPath(repo.trim(), config, hostName) : null) || (selectedProject ? resolveProjectPath(selectedProject.repoPath, config, hostName) : null) || defaultRepo;
     if (!repoPath) {
       setError("Repository path is required (no default configured)");
       return;
     }
 
     // Check if session already exists
-    const hostName = host.trim() || undefined;
     if (await sessionExists(name, hostName)) {
       setError(`Session "${name}" already exists`);
       return;
@@ -275,10 +288,29 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
       }
     }
 
+    // Host field: arrow keys to navigate and update host, enter to create
+    const hostOptions = ["", ...hostNames]; // "" = local
+    if (activeField === "host") {
+      if (key.upArrow) {
+        const newIdx = Math.max(0, hostSelectedIdx - 1);
+        setHostSelectedIdx(newIdx);
+        setHost(hostOptions[newIdx]);
+        return;
+      }
+      if (key.downArrow) {
+        const newIdx = Math.min(hostOptions.length - 1, hostSelectedIdx + 1);
+        setHostSelectedIdx(newIdx);
+        setHost(hostOptions[newIdx]);
+        return;
+      }
+      if (key.return) {
+        handleCreate();
+        return;
+      }
+    }
+
     if (key.shift && key.tab) {
       setActiveField(prevField(activeField));
-    } else if (key.return && activeField === "host") {
-      handleCreate();
     } else if (key.tab || (key.return && activeField !== "host" && activeField !== "linear" && activeField !== "project")) {
       setActiveField(nextField(activeField));
     }
@@ -395,6 +427,9 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
                   </Text>
                 </Box>
               ))}
+              {projectsBase && (
+                <Text color={colors.muted} dimColor>base: {projectsBase}/</Text>
+              )}
               <Text color={colors.muted} dimColor>↑↓ navigate · Enter select · Tab skip</Text>
             </Box>
           )}
@@ -524,7 +559,7 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
         )}
       </Box>
 
-      {/* Host (optional) */}
+      {/* Host picker */}
       <Box
         flexDirection="column"
         borderStyle="round"
@@ -539,17 +574,26 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
             </Text>
           </Box>
           <Box>
-            {activeField === "host" ? (
-              <TextInput
-                value={host}
-                onChange={setHost}
-                placeholder="(local)"
-              />
-            ) : (
-              <Text>{host || <Text color={colors.muted}>(local)</Text>}</Text>
-            )}
+            <Text color={host ? colors.success : colors.muted}>{host || "(local)"}</Text>
           </Box>
         </Box>
+        {activeField === "host" && (
+          <Box flexDirection="column" marginTop={1}>
+            {["", ...hostNames].map((h, idx) => (
+              <Box key={h || "__local__"}>
+                <Text
+                  color={idx === hostSelectedIdx ? colors.textBright : colors.muted}
+                  backgroundColor={idx === hostSelectedIdx ? colors.primary : undefined}
+                  bold={idx === hostSelectedIdx}
+                >
+                  {idx === hostSelectedIdx ? "› " : "  "}
+                  {h || "(local)"}
+                </Text>
+              </Box>
+            ))}
+            <Text color={colors.muted} dimColor>↑↓ navigate · Enter select & create</Text>
+          </Box>
+        )}
       </Box>
 
       <Box marginTop={1} paddingX={1}>

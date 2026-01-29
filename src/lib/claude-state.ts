@@ -1,5 +1,6 @@
 import { readdirSync, readFileSync, realpathSync, statSync, unlinkSync } from "fs";
 import { join } from "path";
+import { exec } from "./ssh";
 
 const STATE_DIR = "/tmp/csm-claude-state";
 const STALE_THRESHOLD_MS = 60_000; // 60 seconds
@@ -161,6 +162,52 @@ export function getLastAssistantMessage(transcriptPath: string, maxLength = 2000
     // File not found or unreadable
   }
   return undefined;
+}
+
+export async function readRemoteClaudeStates(hostName: string): Promise<Map<string, ClaudeStateInfo>> {
+  const states = new Map<string, ClaudeStateInfo>();
+
+  // Read all state files in one SSH call
+  const result = await exec(
+    `for f in ${STATE_DIR}/*.json; do [ -f "$f" ] && cat "$f" && echo "---CSM_SEP---"; done 2>/dev/null`,
+    hostName
+  );
+
+  if (!result.success || !result.stdout.trim()) {
+    return states;
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const chunks = result.stdout.split("---CSM_SEP---").filter((c) => c.trim());
+
+  for (const chunk of chunks) {
+    try {
+      const info: ClaudeStateInfo = JSON.parse(chunk.trim());
+
+      if (info.state === "working" && now - info.timestamp > STALE_THRESHOLD_MS / 1000) {
+        info.state = "idle";
+      }
+      if (info.state === "waiting_for_input" && now - info.timestamp > WAITING_STALE_THRESHOLD_MS / 1000) {
+        info.state = "idle";
+      }
+
+      const cwd = info.cwd;
+      const existing = states.get(cwd);
+      if (existing) {
+        const existingPriority = STATE_PRIORITY[existing.state] ?? 0;
+        const newPriority = STATE_PRIORITY[info.state] ?? 0;
+        if (newPriority > existingPriority || (newPriority === existingPriority && info.timestamp > existing.timestamp)) {
+          states.set(cwd, info);
+        }
+      } else {
+        states.set(cwd, info);
+      }
+    } catch {
+      // Skip malformed
+    }
+  }
+
+  return states;
 }
 
 export function cleanupStateFile(sessionName: string): void {

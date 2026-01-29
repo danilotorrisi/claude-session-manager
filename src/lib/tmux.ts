@@ -1,6 +1,6 @@
 import type { Session, CommandResult, LinearIssue, GitStats, GitFileChange } from "../types";
 import { exec } from "./ssh";
-import { readClaudeStates, getLastAssistantMessage } from "./claude-state";
+import { readClaudeStates, readRemoteClaudeStates, getLastAssistantMessage } from "./claude-state";
 import { getWorktreePath, loadSessionMetadata } from "./worktree";
 import { realpathSync } from "fs";
 
@@ -50,31 +50,42 @@ export async function listSessions(hostName?: string): Promise<Session[]> {
   }
 
   // Enrich sessions with Claude state and Linear issue
-  const claudeStates = readClaudeStates();
+  const claudeStates = hostName ? await readRemoteClaudeStates(hostName) : readClaudeStates();
   for (const session of sessions) {
     try {
       const wtPath = await getWorktreePath(session.name);
-      let normalizedPath: string;
-      try {
-        normalizedPath = realpathSync(wtPath);
-      } catch {
-        normalizedPath = wtPath.startsWith("/tmp/") ? "/private" + wtPath : wtPath;
-      }
       session.worktreePath = wtPath;
-      const stateInfo = claudeStates.get(normalizedPath);
-      if (stateInfo) {
-        session.claudeState = stateInfo.state;
-        if (stateInfo.transcriptPath) {
-          session.claudeLastMessage = getLastAssistantMessage(stateInfo.transcriptPath);
+      if (claudeStates.size > 0) {
+        let normalizedPath: string;
+        if (hostName) {
+          // Remote: match against cwd directly (no realpath resolution)
+          normalizedPath = wtPath;
+        } else {
+          try {
+            normalizedPath = realpathSync(wtPath);
+          } catch {
+            normalizedPath = wtPath.startsWith("/tmp/") ? "/private" + wtPath : wtPath;
+          }
+        }
+        const stateInfo = claudeStates.get(normalizedPath);
+        // For remote, also try with /private prefix (macOS)
+        const stateInfoAlt = !stateInfo && hostName ? claudeStates.get("/private" + normalizedPath) : null;
+        const matched = stateInfo || stateInfoAlt;
+        if (matched) {
+          session.claudeState = matched.state;
+          // Skip transcript reading for remote sessions (would require SSH)
+          if (!hostName && matched.transcriptPath) {
+            session.claudeLastMessage = getLastAssistantMessage(matched.transcriptPath);
+          }
         }
       }
-      session.gitStats = await getGitStats(wtPath);
+      session.gitStats = await getGitStats(wtPath, hostName);
     } catch {
       // Skip state enrichment on error
     }
 
     try {
-      const metadata = await loadSessionMetadata(session.name);
+      const metadata = await loadSessionMetadata(session.name, hostName);
       if (metadata?.linearIssue) {
         session.linearIssue = metadata.linearIssue;
       }
@@ -92,10 +103,11 @@ export async function listSessions(hostName?: string): Promise<Session[]> {
   return sessions;
 }
 
-async function getGitStats(worktreePath: string): Promise<GitStats | undefined> {
+async function getGitStats(worktreePath: string, hostName?: string): Promise<GitStats | undefined> {
   try {
     const result = await exec(
-      `git -C "${worktreePath}" diff --stat HEAD 2>/dev/null | tail -1`
+      `git -C "${worktreePath}" diff --stat HEAD 2>/dev/null | tail -1`,
+      hostName
     );
     if (!result.stdout?.trim()) return undefined;
     // e.g. "3 files changed, 55 insertions(+), 2 deletions(-)"

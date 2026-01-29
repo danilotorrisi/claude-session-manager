@@ -8,6 +8,65 @@ export function expandTilde(filepath: string): string {
   return filepath;
 }
 
+export function isRelativePath(path: string): boolean {
+  return !path.startsWith("/") && !path.startsWith("~");
+}
+
+export function getProjectsBase(config: Config, hostName?: string): string | undefined {
+  if (hostName) {
+    const host = config.hosts[hostName];
+    return host?.projectsBase || config.projectsBase;
+  }
+  return config.projectsBase;
+}
+
+export function resolveProjectPath(repoPath: string, config: Config, hostName?: string): string {
+  if (!isRelativePath(repoPath)) {
+    return expandTilde(repoPath);
+  }
+  const base = getProjectsBase(config, hostName);
+  if (base) {
+    return join(expandTilde(base), repoPath);
+  }
+  // No projectsBase set, treat as-is (expandTilde is a no-op for relative paths)
+  return repoPath;
+}
+
+export function migrateProjectPaths(config: Config): boolean {
+  const base = config.projectsBase;
+  if (!base || !config.projects?.length) return false;
+
+  const expandedBase = expandTilde(base);
+  const prefix = expandedBase.endsWith("/") ? expandedBase : expandedBase + "/";
+  let changed = false;
+
+  for (const project of config.projects) {
+    if (!isRelativePath(project.repoPath)) {
+      const expandedPath = expandTilde(project.repoPath);
+      if (expandedPath.startsWith(prefix)) {
+        project.repoPath = expandedPath.slice(prefix.length);
+        changed = true;
+      }
+    }
+  }
+
+  return changed;
+}
+
+export function normalizeProjectPath(repoPath: string, config: Config): string {
+  const base = config.projectsBase;
+  if (!base) return repoPath;
+
+  const expandedBase = expandTilde(base);
+  const prefix = expandedBase.endsWith("/") ? expandedBase : expandedBase + "/";
+  const expandedPath = expandTilde(repoPath);
+
+  if (expandedPath.startsWith(prefix)) {
+    return expandedPath.slice(prefix.length);
+  }
+  return repoPath;
+}
+
 const CONFIG_DIR = join(homedir(), ".config", "csm");
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
 
@@ -20,8 +79,11 @@ export async function loadConfig(): Promise<Config> {
   try {
     const file = Bun.file(CONFIG_FILE);
     if (await file.exists()) {
-      const content = await file.json();
-      return { ...DEFAULT_CONFIG, ...content };
+      const config = { ...DEFAULT_CONFIG, ...(await file.json()) };
+      if (migrateProjectPaths(config)) {
+        await Bun.write(CONFIG_FILE, JSON.stringify(config, null, 2));
+      }
+      return config;
     }
   } catch {
     // Config doesn't exist or is invalid, use defaults
@@ -70,10 +132,11 @@ export async function getProjects(): Promise<Project[]> {
 
 export async function addProject(project: Project): Promise<void> {
   const config = await loadConfig();
+  const normalized = { ...project, repoPath: normalizeProjectPath(project.repoPath, config) };
   const projects = config.projects || [];
   // Replace if same name exists
-  const filtered = projects.filter((p) => p.name !== project.name);
-  filtered.push(project);
+  const filtered = projects.filter((p) => p.name !== normalized.name);
+  filtered.push(normalized);
   config.projects = filtered;
   await saveConfig(config);
 }

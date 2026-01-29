@@ -51,6 +51,7 @@ const keyHints: Record<string, KeyHint[]> = {
     { key: "e", label: "edit" },
     { key: "d", label: "delete" },
     { key: "t", label: "test" },
+    { key: "i", label: "install hooks" },
     { key: "tab", label: "switch tab" },
     { key: "q", label: "quit" },
   ],
