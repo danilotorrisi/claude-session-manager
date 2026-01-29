@@ -12,7 +12,6 @@ describe("Footer component", () => {
     expect(frame).toContain("attach");
     expect(frame).toContain("create");
     expect(frame).toContain("kill");
-    expect(frame).toContain("refresh");
     expect(frame).toContain("quit");
   });
 

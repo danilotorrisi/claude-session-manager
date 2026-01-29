@@ -36,7 +36,7 @@ const keyHints: Record<string, KeyHint[]> = {
   ],
   tasks: [
     { key: "↑↓", label: "navigate" },
-    { key: "space", label: "detail" },
+    { key: "enter", label: "detail" },
     { key: "s", label: "status" },
     { key: "o", label: "open" },
     { key: "/", label: "search" },

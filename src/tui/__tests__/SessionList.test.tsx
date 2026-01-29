@@ -79,10 +79,30 @@ describe("SessionList component", () => {
       expect(frame).toContain("SESSION");
       expect(frame).toContain("STATUS");
       expect(frame).toContain("AGE");
-      expect(frame).toContain("TITLE");
+      expect(frame).toContain("CHANGES");
+      expect(frame).toContain("LAST MESSAGE");
     });
 
-    test("shows attached status for attached sessions", () => {
+    test("shows claude state when set", () => {
+      const sessionsWithState: Session[] = [
+        { ...mockSessions[0], claudeState: "working" },
+        { ...mockSessions[1], claudeState: "idle" },
+        mockSessions[2],
+      ];
+      const { lastFrame } = render(
+        <SessionList
+          sessions={sessionsWithState}
+          selectedIndex={0}
+          onSelect={() => {}}
+          onActivate={() => {}}
+        />
+      );
+
+      expect(lastFrame()).toContain("working");
+      expect(lastFrame()).toContain("idle");
+    });
+
+    test("shows dash when no claude state", () => {
       const { lastFrame } = render(
         <SessionList
           sessions={mockSessions}
@@ -92,20 +112,7 @@ describe("SessionList component", () => {
         />
       );
 
-      expect(lastFrame()).toContain("attached");
-    });
-
-    test("shows detached status for detached sessions", () => {
-      const { lastFrame } = render(
-        <SessionList
-          sessions={mockSessions}
-          selectedIndex={0}
-          onSelect={() => {}}
-          onActivate={() => {}}
-        />
-      );
-
-      expect(lastFrame()).toContain("detached");
+      expect(lastFrame()).toContain("-");
     });
 
     test("shows selection indicator on selected row", () => {

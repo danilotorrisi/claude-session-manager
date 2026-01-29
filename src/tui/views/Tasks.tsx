@@ -202,12 +202,10 @@ export function Tasks({ state, dispatch, onRefresh, onLoadMore, paginationRef }:
       setSelectedIndex((i) => Math.max(0, i - 1));
     } else if (key.downArrow) {
       setSelectedIndex((i) => Math.min(flatItems.length - 1, i + 1));
-    } else if (input === " ") {
+    } else if (input === " " || key.return) {
       if (currentIssue) {
         setShowPreview(true);
-      }
-    } else if (key.return) {
-      if (isOnLoadMore) {
+      } else if (isOnLoadMore) {
         onLoadMore();
       }
     } else if (input === "f") {
