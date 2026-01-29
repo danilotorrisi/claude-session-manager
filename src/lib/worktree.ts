@@ -191,7 +191,7 @@ export async function checkWorktreeClean(
   worktreePath: string,
   hostName?: string
 ): Promise<boolean> {
-  const result = await exec(`git -C "${worktreePath}" status --porcelain`, hostName);
+  const result = await exec(`git -C "${worktreePath}" status --porcelain -uno`, hostName);
   return result.success && !result.stdout.trim();
 }
 
