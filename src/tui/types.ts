@@ -1,9 +1,9 @@
-import type { Session, Project, LinearIssue } from "../types";
+import type { Session, Project, LinearIssue, HostConfig } from "../types";
 
-export type Tab = "sessions" | "projects" | "tasks";
+export type Tab = "sessions" | "projects" | "tasks" | "hosts";
 export type View = "dashboard" | "create" | "detail" | "projects";
 
-const tabOrder: Tab[] = ["sessions", "projects", "tasks"];
+const tabOrder: Tab[] = ["sessions", "projects", "tasks", "hosts"];
 
 export function nextTab(current: Tab): Tab {
   const idx = tabOrder.indexOf(current);
@@ -20,6 +20,7 @@ export interface AppState {
   activeTab: Tab;
   projects: Project[];
   tasks: LinearIssue[];
+  hosts: Record<string, HostConfig>;
 }
 
 export type AppAction =
@@ -32,7 +33,8 @@ export type AppAction =
   | { type: "CLEAR_MESSAGE" }
   | { type: "SET_TAB"; tab: Tab }
   | { type: "SET_PROJECTS"; projects: Project[] }
-  | { type: "SET_TASKS"; tasks: LinearIssue[] };
+  | { type: "SET_TASKS"; tasks: LinearIssue[] }
+  | { type: "SET_HOSTS"; hosts: Record<string, HostConfig> };
 
 export const initialState: AppState = {
   view: "dashboard",
@@ -44,6 +46,7 @@ export const initialState: AppState = {
   activeTab: "sessions",
   projects: [],
   tasks: [],
+  hosts: {},
 };
 
 export function appReducer(state: AppState, action: AppAction): AppState {
@@ -68,6 +71,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, projects: action.projects };
     case "SET_TASKS":
       return { ...state, tasks: action.tasks };
+    case "SET_HOSTS":
+      return { ...state, hosts: action.hosts };
     default:
       return state;
   }
