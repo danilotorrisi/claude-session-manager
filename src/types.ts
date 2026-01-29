@@ -5,6 +5,9 @@ export interface LinearIssue {
   url: string;
   description?: string;
   state?: string;       // e.g. "In Progress"
+  stateType?: string;   // e.g. "started", "unstarted", "backlog", "completed", "canceled"
+  stateId?: string;     // Linear state UUID
+  teamId?: string;      // Linear team UUID
   priority?: number;
 }
 

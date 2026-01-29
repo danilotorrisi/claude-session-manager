@@ -6,8 +6,10 @@ import { Dashboard } from "./views/Dashboard";
 import { CreateSession } from "./views/CreateSession";
 import { SessionDetail } from "./views/SessionDetail";
 import { Projects } from "./views/Projects";
+import { Tasks } from "./views/Tasks";
 import { useSessions } from "./hooks/useSessions";
 import { useProjects } from "./hooks/useProjects";
+import { useLinearTasks } from "./hooks/useLinearTasks";
 import { initialState, appReducer } from "./types";
 import { colors } from "./theme";
 
@@ -15,6 +17,7 @@ export function App() {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const { refresh } = useSessions(dispatch);
   const { reload: reloadProjects } = useProjects(dispatch);
+  const { refresh: refreshTasks, loadMore: loadMoreTasks, paginationRef } = useLinearTasks(dispatch);
   const { stdout } = useStdout();
 
   const handleRefresh = useCallback(async () => {
@@ -25,6 +28,7 @@ export function App() {
     const tabs = [
       { key: "sessions" as const, label: "Sessions" },
       { key: "projects" as const, label: "Projects" },
+      { key: "tasks" as const, label: "Tasks" },
     ];
 
     return (
@@ -60,11 +64,19 @@ export function App() {
               dispatch={dispatch}
               onRefresh={handleRefresh}
             />
-          ) : (
+          ) : state.activeTab === "projects" ? (
             <Projects
               state={state}
               dispatch={dispatch}
               onReloadProjects={reloadProjects}
+            />
+          ) : (
+            <Tasks
+              state={state}
+              dispatch={dispatch}
+              onRefresh={refreshTasks}
+              onLoadMore={loadMoreTasks}
+              paginationRef={paginationRef}
             />
           )}
         </>
