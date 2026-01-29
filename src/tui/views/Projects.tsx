@@ -2,6 +2,7 @@ import React, { useState, useCallback } from "react";
 import { Box, Text, useInput, useApp } from "ink";
 import TextInput from "ink-text-input";
 import type { AppState, AppAction } from "../types";
+import { nextTab } from "../types";
 import type { Project } from "../../types";
 import { addProject, deleteProject, renameProject, expandTilde } from "../../lib/config";
 import { colors } from "../theme";
@@ -96,7 +97,7 @@ export function Projects({ state, dispatch, onReloadProjects }: ProjectsProps) {
     if (input === "q") {
       exit();
     } else if (key.tab) {
-      dispatch({ type: "SET_TAB", tab: "sessions" });
+      dispatch({ type: "SET_TAB", tab: nextTab(state.activeTab) });
     } else if (input === "c") {
       setMode("create");
       setCreateField("name");

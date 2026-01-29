@@ -136,6 +136,39 @@ done
   startTui();
 }
 
+/**
+ * Attach to a tmux session in terminal mode (open a shell in the worktree directory).
+ */
+export async function exitTuiAndAttachTerminal(sessionName: string, tmuxSessionName: string, worktreePath?: string): Promise<void> {
+  if (instance) {
+    instance.unmount();
+    instance = null;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  process.stdout.write("\x1B[2J\x1B[H");
+
+  const { spawnSync } = await import("child_process");
+
+  // Create a new window in the tmux session with a shell in the worktree path
+  if (worktreePath) {
+    spawnSync("tmux", ["new-window", "-t", tmuxSessionName, "-c", worktreePath], {
+      stdio: "inherit",
+      env: process.env,
+    });
+  }
+
+  // Attach to the tmux session
+  spawnSync("tmux", ["attach", "-t", tmuxSessionName], {
+    stdio: "inherit",
+    env: process.env,
+  });
+
+  process.stdout.write("\x1B[2J\x1B[H");
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  startTui();
+}
+
 // Keep the old function for cases where we want to exit completely
 export async function exitTuiAndRun(command: string, args: string[]): Promise<never> {
   if (instance) {

@@ -1,7 +1,14 @@
-import type { Session, Project } from "../types";
+import type { Session, Project, LinearIssue } from "../types";
 
-export type Tab = "sessions" | "projects";
+export type Tab = "sessions" | "projects" | "tasks";
 export type View = "dashboard" | "create" | "detail" | "projects";
+
+const tabOrder: Tab[] = ["sessions", "projects", "tasks"];
+
+export function nextTab(current: Tab): Tab {
+  const idx = tabOrder.indexOf(current);
+  return tabOrder[(idx + 1) % tabOrder.length];
+}
 
 export interface AppState {
   view: View;
@@ -12,6 +19,7 @@ export interface AppState {
   message: string | null;
   activeTab: Tab;
   projects: Project[];
+  tasks: LinearIssue[];
 }
 
 export type AppAction =
@@ -23,7 +31,8 @@ export type AppAction =
   | { type: "SET_MESSAGE"; message: string | null }
   | { type: "CLEAR_MESSAGE" }
   | { type: "SET_TAB"; tab: Tab }
-  | { type: "SET_PROJECTS"; projects: Project[] };
+  | { type: "SET_PROJECTS"; projects: Project[] }
+  | { type: "SET_TASKS"; tasks: LinearIssue[] };
 
 export const initialState: AppState = {
   view: "dashboard",
@@ -34,6 +43,7 @@ export const initialState: AppState = {
   message: null,
   activeTab: "sessions",
   projects: [],
+  tasks: [],
 };
 
 export function appReducer(state: AppState, action: AppAction): AppState {
@@ -56,6 +66,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, activeTab: action.tab };
     case "SET_PROJECTS":
       return { ...state, projects: action.projects };
+    case "SET_TASKS":
+      return { ...state, tasks: action.tasks };
     default:
       return state;
   }

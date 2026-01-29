@@ -5,6 +5,7 @@ import { SessionList } from "../components/SessionList";
 import { StatusBar } from "../components/StatusBar";
 import type { Session } from "../../types";
 import type { AppState, AppAction } from "../types";
+import { nextTab } from "../types";
 import { killSession, getSessionName, sendToSession } from "../../lib/tmux";
 import { removeWorktree, loadSessionMetadata, deleteBranch } from "../../lib/worktree";
 import { exec } from "child_process";
@@ -151,7 +152,7 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   // All other keybindings disabled during reply mode
   useInput((input, _key) => {
     if (_key.tab && !replyMode) {
-      dispatch({ type: "SET_TAB", tab: "projects" });
+      dispatch({ type: "SET_TAB", tab: nextTab(state.activeTab) });
       return;
     }
     if (input === "q") {
