@@ -1,9 +1,19 @@
-import type { Session, Project, LinearIssue } from "../types";
+import type { Session, Project, LinearIssue, HostConfig } from "../types";
 
-export type Tab = "sessions" | "projects" | "tasks";
+export type Tab = "sessions" | "projects" | "hosts" | "tasks";
 export type View = "dashboard" | "create" | "detail" | "projects";
 
-const tabOrder: Tab[] = ["sessions", "projects", "tasks"];
+export interface HostStatusInfo {
+  status: "unknown" | "checking" | "online" | "offline";
+  latencyMs?: number;
+  hostname?: string;
+  os?: string;
+  uptime?: string;
+  ramUsage?: string;
+  lastChecked?: number;
+}
+
+const tabOrder: Tab[] = ["sessions", "projects", "hosts", "tasks"];
 
 export function nextTab(current: Tab): Tab {
   const idx = tabOrder.indexOf(current);
@@ -19,6 +29,8 @@ export interface AppState {
   message: string | null;
   activeTab: Tab;
   projects: Project[];
+  hosts: Record<string, HostConfig>;
+  hostStatus: Record<string, HostStatusInfo>;
   tasks: LinearIssue[];
 }
 
@@ -32,6 +44,8 @@ export type AppAction =
   | { type: "CLEAR_MESSAGE" }
   | { type: "SET_TAB"; tab: Tab }
   | { type: "SET_PROJECTS"; projects: Project[] }
+  | { type: "SET_HOSTS"; hosts: Record<string, HostConfig> }
+  | { type: "SET_HOST_STATUS"; name: string; statusInfo: HostStatusInfo }
   | { type: "SET_TASKS"; tasks: LinearIssue[] };
 
 export const initialState: AppState = {
@@ -43,6 +57,8 @@ export const initialState: AppState = {
   message: null,
   activeTab: "sessions",
   projects: [],
+  hosts: {},
+  hostStatus: {},
   tasks: [],
 };
 
@@ -66,6 +82,16 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, activeTab: action.tab };
     case "SET_PROJECTS":
       return { ...state, projects: action.projects };
+    case "SET_HOSTS":
+      return { ...state, hosts: action.hosts };
+    case "SET_HOST_STATUS":
+      return {
+        ...state,
+        hostStatus: {
+          ...state.hostStatus,
+          [action.name]: action.statusInfo,
+        },
+      };
     case "SET_TASKS":
       return { ...state, tasks: action.tasks };
     default:

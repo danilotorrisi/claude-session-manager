@@ -6,9 +6,11 @@ import { Dashboard } from "./views/Dashboard";
 import { CreateSession } from "./views/CreateSession";
 import { SessionDetail } from "./views/SessionDetail";
 import { Projects } from "./views/Projects";
+import { Hosts } from "./views/Hosts";
 import { Tasks } from "./views/Tasks";
 import { useSessions } from "./hooks/useSessions";
 import { useProjects } from "./hooks/useProjects";
+import { useHosts } from "./hooks/useHosts";
 import { useLinearTasks } from "./hooks/useLinearTasks";
 import { initialState, appReducer } from "./types";
 import { colors } from "./theme";
@@ -17,6 +19,7 @@ export function App() {
   const [state, dispatch] = useReducer(appReducer, initialState);
   const { refresh } = useSessions(dispatch);
   const { reload: reloadProjects } = useProjects(dispatch);
+  const { reload: reloadHosts, checkHost, refreshStatus: refreshHostStatus } = useHosts(dispatch);
   const { refresh: refreshTasks, loadMore: loadMoreTasks, paginationRef } = useLinearTasks(dispatch);
   const { stdout } = useStdout();
 
@@ -28,6 +31,7 @@ export function App() {
     const tabs = [
       { key: "sessions" as const, label: "Sessions" },
       { key: "projects" as const, label: "Projects" },
+      { key: "hosts" as const, label: "Hosts" },
       { key: "tasks" as const, label: "Tasks" },
     ];
 
@@ -69,6 +73,14 @@ export function App() {
               state={state}
               dispatch={dispatch}
               onReloadProjects={reloadProjects}
+            />
+          ) : state.activeTab === "hosts" ? (
+            <Hosts
+              state={state}
+              dispatch={dispatch}
+              onReload={reloadHosts}
+              onCheckHost={checkHost}
+              onRefreshStatus={refreshHostStatus}
             />
           ) : (
             <Tasks
