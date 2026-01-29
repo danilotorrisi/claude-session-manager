@@ -136,6 +136,36 @@ done
   startTui();
 }
 
+/**
+ * Attach to a tmux session's terminal window directly.
+ */
+export async function exitTuiAndAttachTerminal(sessionName: string, tmuxSessionName: string, worktreePath?: string): Promise<void> {
+  if (instance) {
+    instance.unmount();
+    instance = null;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  process.stdout.write("\x1B[2J\x1B[H");
+
+  const { spawnSync } = await import("child_process");
+
+  // Select the terminal window before attaching
+  spawnSync("tmux", ["select-window", "-t", `${tmuxSessionName}:terminal`], {
+    stdio: "ignore",
+  });
+
+  spawnSync("tmux", ["attach", "-t", tmuxSessionName], {
+    stdio: "inherit",
+    env: process.env,
+  });
+
+  // After detaching, restart TUI
+  process.stdout.write("\x1B[2J\x1B[H");
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  startTui();
+}
+
 // Keep the old function for cases where we want to exit completely
 export async function exitTuiAndRun(command: string, args: string[]): Promise<never> {
   if (instance) {

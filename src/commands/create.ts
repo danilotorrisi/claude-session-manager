@@ -1,6 +1,7 @@
 import type { CreateOptions } from "../types";
 import { getDefaultRepo, expandTilde } from "../lib/config";
 import { sessionExists, createSession } from "../lib/tmux";
+import { exec } from "../lib/ssh";
 import {
   createWorktree,
   getWorktreePath,
@@ -85,6 +86,12 @@ export async function create(name: string, options: CreateOptions): Promise<void
   if (!sessionResult.success) {
     console.error(`Error creating tmux session: ${sessionResult.stderr}`);
     process.exit(1);
+  }
+
+  // Check if setup script was run (createSession runs it internally, but we log here)
+  const setupCheck = await exec(`test -f "${worktreePath}/.csm-setup.sh"`, host);
+  if (setupCheck.success) {
+    console.log(`  Running setup script (.csm-setup.sh)...`);
   }
 
   console.log(`\nSession '${name}' created successfully!`);

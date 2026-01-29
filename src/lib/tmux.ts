@@ -140,7 +140,27 @@ export async function createSession(
   // Using a login shell ensures proper environment (PATH, etc.)
   // The shell stays open if claude exits, allowing debugging
   const command = `tmux new-session -d -s ${sessionName} -c "${workingDir}" -n claude && tmux send-keys -t ${sessionName}:claude 'claude' Enter && tmux new-window -t ${sessionName} -n terminal -c "${workingDir}" && tmux select-window -t ${sessionName}:claude`;
-  return exec(command, hostName);
+  const result = await exec(command, hostName);
+
+  if (result.success) {
+    await runSetupScript(sessionName, workingDir, hostName);
+  }
+
+  return result;
+}
+
+export async function runSetupScript(
+  sessionName: string,
+  workingDir: string,
+  hostName?: string
+): Promise<boolean> {
+  const checkResult = await exec(`test -f "${workingDir}/.csm-setup.sh"`, hostName);
+  if (!checkResult.success) {
+    return false;
+  }
+
+  await exec(`tmux send-keys -t ${sessionName}:terminal 'bash .csm-setup.sh' Enter`, hostName);
+  return true;
 }
 
 export async function killSession(
