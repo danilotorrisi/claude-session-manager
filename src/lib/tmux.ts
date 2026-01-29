@@ -126,12 +126,12 @@ async function getGitStats(worktreePath: string, hostName?: string): Promise<Git
   }
 }
 
-export async function getDetailedGitStats(worktreePath: string): Promise<GitStats | undefined> {
+export async function getDetailedGitStats(worktreePath: string, hostName?: string): Promise<GitStats | undefined> {
   try {
     // Run git diff --numstat and git status --porcelain in parallel
     const [numstatResult, statusResult] = await Promise.all([
-      exec(`git -C "${worktreePath}" diff --numstat HEAD 2>/dev/null`),
-      exec(`git -C "${worktreePath}" status --porcelain 2>/dev/null`),
+      exec(`git -C "${worktreePath}" diff --numstat HEAD 2>/dev/null`, hostName),
+      exec(`git -C "${worktreePath}" status --porcelain 2>/dev/null`, hostName),
     ]);
 
     // Parse status flags: M=modified, A=added, D=deleted, R=renamed, ??=untracked
@@ -190,18 +190,20 @@ export async function getDetailedGitStats(worktreePath: string): Promise<GitStat
   }
 }
 
-export async function getFileDiff(worktreePath: string, filePath: string): Promise<string[]> {
+export async function getFileDiff(worktreePath: string, filePath: string, hostName?: string): Promise<string[]> {
   try {
     // Try tracked file diff first
     const result = await exec(
-      `git -C "${worktreePath}" diff HEAD -- "${filePath}" 2>/dev/null`
+      `git -C "${worktreePath}" diff HEAD -- "${filePath}" 2>/dev/null`,
+      hostName
     );
     if (result.stdout?.trim()) {
       return result.stdout.split("\n");
     }
     // For untracked files, diff against /dev/null
     const untrackedResult = await exec(
-      `git -C "${worktreePath}" diff --no-index /dev/null -- "${filePath}" 2>/dev/null || true`
+      `git -C "${worktreePath}" diff --no-index /dev/null -- "${filePath}" 2>/dev/null || true`,
+      hostName
     );
     if (untrackedResult.stdout?.trim()) {
       return untrackedResult.stdout.split("\n");
@@ -344,11 +346,11 @@ export async function killSession(
   return exec(`tmux kill-session -t ${sessionName}`, hostName);
 }
 
-export async function sendToSession(name: string, text: string): Promise<CommandResult> {
+export async function sendToSession(name: string, text: string, hostName?: string): Promise<CommandResult> {
   const sessionName = getSessionName(name);
   // Escape single quotes for shell safety
   const escaped = text.replace(/'/g, "'\\''");
-  return exec(`tmux send-keys -t ${sessionName} -l '${escaped}' && tmux send-keys -t ${sessionName} Enter`);
+  return exec(`tmux send-keys -t ${sessionName} -l '${escaped}' && tmux send-keys -t ${sessionName} Enter`, hostName);
 }
 
 export async function attachSession(name: string): Promise<void> {

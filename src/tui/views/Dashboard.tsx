@@ -327,7 +327,7 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       setDiffScrollOffset(0);
       if (session.worktreePath) {
         setLoadingGitDetails(true);
-        getDetailedGitStats(session.worktreePath).then((stats) => {
+        getDetailedGitStats(session.worktreePath, session.host).then((stats) => {
           setDetailedGitStats(stats ?? null);
           setLoadingGitDetails(false);
         }).catch(() => {
@@ -341,7 +341,7 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   const handleReplySubmit = useCallback(async (text: string) => {
     if (!previewSession || !text.trim()) return;
     try {
-      await sendToSession(previewSession.name, text.trim());
+      await sendToSession(previewSession.name, text.trim(), previewSession.host);
       dispatch({ type: "SET_MESSAGE", message: `Sent reply to "${previewSession.name}"` });
     } catch {
       dispatch({ type: "SET_ERROR", error: "Failed to send reply" });
@@ -365,7 +365,7 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
     setLoadingDiff(true);
     setDiffLines([]);
     setDiffScrollOffset(0);
-    getFileDiff(previewSession.worktreePath, file.file)
+    getFileDiff(previewSession.worktreePath, file.file, previewSession.host)
       .then((lines) => {
         setDiffLines(lines);
         setLoadingDiff(false);

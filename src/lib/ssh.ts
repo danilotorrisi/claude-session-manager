@@ -18,7 +18,8 @@ export async function execRemote(
     };
   }
 
-  const proc = Bun.spawn(["ssh", hostConfig.host, `bash -lc ${JSON.stringify(command)}`], {
+  const escaped = command.replace(/'/g, "'\\''");
+  const proc = Bun.spawn(["ssh", hostConfig.host, `bash -lc '${escaped}'`], {
     stdout: "pipe",
     stderr: "pipe",
   });
