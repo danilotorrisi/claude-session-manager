@@ -1,6 +1,6 @@
 import { homedir } from "os";
 import { join } from "path";
-import type { Config, HostConfig, Project, ArchivedSession } from "../types";
+import type { Config, HostConfig, Project } from "../types";
 
 export function expandTilde(filepath: string): string {
   if (filepath === "~") return homedir();
@@ -84,29 +84,6 @@ export async function deleteProject(name: string): Promise<void> {
   await saveConfig(config);
 }
 
-export async function getHosts(): Promise<Record<string, HostConfig>> {
-  const config = await loadConfig();
-  return config.hosts || {};
-}
-
-export async function addHost(name: string, host: HostConfig): Promise<void> {
-  const config = await loadConfig();
-  config.hosts[name] = host;
-  await saveConfig(config);
-}
-
-export async function updateHost(name: string, host: HostConfig): Promise<void> {
-  const config = await loadConfig();
-  config.hosts[name] = host;
-  await saveConfig(config);
-}
-
-export async function deleteHost(name: string): Promise<void> {
-  const config = await loadConfig();
-  delete config.hosts[name];
-  await saveConfig(config);
-}
-
 export async function renameProject(oldName: string, newName: string): Promise<void> {
   const config = await loadConfig();
   const projects = config.projects || [];
@@ -117,25 +94,4 @@ export async function renameProject(oldName: string, newName: string): Promise<v
   }
 }
 
-const ARCHIVED_SESSIONS_FILE = join(CONFIG_DIR, "archived-sessions.json");
-
-export async function loadArchivedSessions(): Promise<ArchivedSession[]> {
-  try {
-    const file = Bun.file(ARCHIVED_SESSIONS_FILE);
-    if (await file.exists()) {
-      return await file.json();
-    }
-  } catch {
-    // File doesn't exist or is invalid
-  }
-  return [];
-}
-
-export async function saveArchivedSession(session: ArchivedSession): Promise<void> {
-  await ensureConfigDir();
-  const existing = await loadArchivedSessions();
-  existing.push(session);
-  await Bun.write(ARCHIVED_SESSIONS_FILE, JSON.stringify(existing, null, 2));
-}
-
-export { CONFIG_DIR, CONFIG_FILE, ARCHIVED_SESSIONS_FILE };
+export { CONFIG_DIR, CONFIG_FILE };

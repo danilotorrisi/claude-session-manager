@@ -7,11 +7,9 @@ import { CreateSession } from "./views/CreateSession";
 import { SessionDetail } from "./views/SessionDetail";
 import { Projects } from "./views/Projects";
 import { Tasks } from "./views/Tasks";
-import { Hosts } from "./views/Hosts";
 import { useSessions } from "./hooks/useSessions";
 import { useProjects } from "./hooks/useProjects";
 import { useLinearTasks } from "./hooks/useLinearTasks";
-import { useHosts } from "./hooks/useHosts";
 import { initialState, appReducer } from "./types";
 import { colors } from "./theme";
 
@@ -20,7 +18,6 @@ export function App() {
   const { refresh } = useSessions(dispatch);
   const { reload: reloadProjects } = useProjects(dispatch);
   const { refresh: refreshTasks, loadMore: loadMoreTasks, paginationRef } = useLinearTasks(dispatch);
-  const { reload: reloadHosts } = useHosts(dispatch);
   const { stdout } = useStdout();
 
   const handleRefresh = useCallback(async () => {
@@ -32,7 +29,6 @@ export function App() {
       { key: "sessions" as const, label: "Sessions" },
       { key: "projects" as const, label: "Projects" },
       { key: "tasks" as const, label: "Tasks" },
-      { key: "hosts" as const, label: "Hosts" },
     ];
 
     return (
@@ -74,19 +70,13 @@ export function App() {
               dispatch={dispatch}
               onReloadProjects={reloadProjects}
             />
-          ) : state.activeTab === "tasks" ? (
+          ) : (
             <Tasks
               state={state}
               dispatch={dispatch}
               onRefresh={refreshTasks}
               onLoadMore={loadMoreTasks}
               paginationRef={paginationRef}
-            />
-          ) : (
-            <Hosts
-              state={state}
-              dispatch={dispatch}
-              onReloadHosts={reloadHosts}
             />
           )}
         </>

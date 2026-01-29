@@ -29,10 +29,18 @@ export interface Config {
   projects?: Project[];
 }
 
+export interface GitFileChange {
+  file: string;
+  insertions: number;
+  deletions: number;
+  status: 'modified' | 'added' | 'deleted' | 'renamed';
+}
+
 export interface GitStats {
   filesChanged: number;
   insertions: number;
   deletions: number;
+  fileChanges?: GitFileChange[];
 }
 
 export interface Session {
@@ -48,19 +56,6 @@ export interface Session {
   linearIssue?: LinearIssue;
   projectName?: string;
   gitStats?: GitStats;
-  archived?: boolean;
-  mergedAt?: string; // ISO timestamp
-}
-
-export interface ArchivedSession {
-  name: string;
-  branchName: string;
-  repoPath: string;
-  projectName?: string;
-  linearIssue?: LinearIssue;
-  createdAt: string;
-  mergedAt: string;
-  archivedAt: string;
 }
 
 export interface CommandResult {

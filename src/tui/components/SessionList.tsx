@@ -156,12 +156,6 @@ export function SessionList({
               >
                 {session.name.slice(0, 16)}
               </Text>
-              {session.archived && (
-                <Text color={colors.muted} dimColor backgroundColor={rowBg}> [archived]</Text>
-              )}
-              {session.mergedAt && !session.archived && (
-                <Text color={colors.success} backgroundColor={rowBg}> [merged]</Text>
-              )}
             </Box>
             {session.linearIssue && (
               <Box width={12}>

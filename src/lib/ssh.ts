@@ -60,37 +60,6 @@ export async function exec(
   return execLocal(command);
 }
 
-export async function testConnection(hostName: string): Promise<CommandResult> {
-  const hostConfig = await getHost(hostName);
-  if (!hostConfig) {
-    return {
-      success: false,
-      stdout: "",
-      stderr: `Host '${hostName}' not found in config`,
-      exitCode: 1,
-    };
-  }
-
-  const proc = Bun.spawn(
-    ["ssh", "-o", "ConnectTimeout=5", hostConfig.host, "echo ok"],
-    {
-      stdout: "pipe",
-      stderr: "pipe",
-    }
-  );
-
-  const stdout = await new Response(proc.stdout).text();
-  const stderr = await new Response(proc.stderr).text();
-  const exitCode = await proc.exited;
-
-  return {
-    success: exitCode === 0,
-    stdout: stdout.trim(),
-    stderr: stderr.trim(),
-    exitCode,
-  };
-}
-
 export async function attachRemote(hostName: string, sessionName: string): Promise<void> {
   const hostConfig = await getHost(hostName);
   if (!hostConfig) {

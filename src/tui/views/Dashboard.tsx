@@ -3,13 +3,14 @@ import { Box, Text, useInput, useApp } from "ink";
 import TextInput from "ink-text-input";
 import { SessionList } from "../components/SessionList";
 import { StatusBar } from "../components/StatusBar";
-import type { Session } from "../../types";
+import { GitChangesPanel } from "../components/GitChangesPanel";
+import type { Session, GitStats } from "../../types";
 import type { AppState, AppAction } from "../types";
 import { nextTab } from "../types";
-import { killSession, getSessionName, sendToSession, listSessions } from "../../lib/tmux";
-import { removeWorktree, loadSessionMetadata, deleteBranch, checkWorktreeClean, mergeToMain, getWorktreePath } from "../../lib/worktree";
+import { killSession, getSessionName, sendToSession, getDetailedGitStats, getFileDiff } from "../../lib/tmux";
+import { removeWorktree, loadSessionMetadata, deleteBranch } from "../../lib/worktree";
 import { exec } from "child_process";
-import { getDefaultRepo, saveArchivedSession } from "../../lib/config";
+import { getDefaultRepo } from "../../lib/config";
 import { cleanupStateFile } from "../../lib/claude-state";
 import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal } from "../index";
 import { colors } from "../theme";
@@ -35,20 +36,18 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   const { exit } = useApp();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [confirmKill, setConfirmKill] = useState<string | null>(null);
-  const [confirmMerge, setConfirmMerge] = useState<string | null>(null);
-  const [pendingArchive, setPendingArchive] = useState<string | null>(null);
-  const [showArchived, setShowArchived] = useState(false);
   const [previewSession, setPreviewSession] = useState<Session | null>(null);
   const [replyMode, setReplyMode] = useState(false);
   const [replyText, setReplyText] = useState("");
-
-  // Filter archived sessions unless toggled on
-  const visibleSessions = showArchived
-    ? state.sessions
-    : state.sessions.filter((s) => !s.archived);
+  const [detailedGitStats, setDetailedGitStats] = useState<GitStats | null>(null);
+  const [loadingGitDetails, setLoadingGitDetails] = useState(false);
+  const [selectedFileIndex, setSelectedFileIndex] = useState(0);
+  const [diffLines, setDiffLines] = useState<string[] | null>(null);
+  const [diffScrollOffset, setDiffScrollOffset] = useState(0);
+  const [loadingDiff, setLoadingDiff] = useState(false);
 
   // Compute grouped sessions for display
-  const sessionGroups = groupSessionsByProject(visibleSessions);
+  const sessionGroups = groupSessionsByProject(state.sessions);
   const hasGroups = Array.from(sessionGroups.keys()).some((k) => k !== null);
 
   // Build flat ordered list matching group order
@@ -115,95 +114,6 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
     }
   }, [confirmKill, dispatch, onRefresh]);
 
-  const handleMerge = useCallback(async (session: Session) => {
-    if (session.archived) {
-      dispatch({ type: "SET_MESSAGE", message: "Cannot merge an archived session" });
-      return;
-    }
-
-    if (confirmMerge !== session.name) {
-      // First press: check worktree is clean
-      const wtPath = session.worktreePath || await getWorktreePath(session.name);
-      const clean = await checkWorktreeClean(wtPath);
-      if (!clean) {
-        dispatch({ type: "SET_MESSAGE", message: `Session has uncommitted changes — commit first` });
-        return;
-      }
-      setConfirmMerge(session.name);
-      dispatch({ type: "SET_MESSAGE", message: `Press 'm' again to merge "${session.name}" into main` });
-      return;
-    }
-
-    // Second press: execute merge
-    setConfirmMerge(null);
-    try {
-      const metadata = await loadSessionMetadata(session.name);
-      const wtPath = session.worktreePath || await getWorktreePath(session.name);
-      const branchName = metadata?.branchName || "";
-
-      dispatch({ type: "SET_MESSAGE", message: `Merging "${session.name}" into main...` });
-      const result = await mergeToMain(wtPath, branchName);
-
-      if (!result.success) {
-        dispatch({ type: "SET_ERROR", error: `Merge failed: ${result.stderr}` });
-        return;
-      }
-
-      // Mark session as merged in metadata
-      session.mergedAt = new Date().toISOString();
-
-      setPendingArchive(session.name);
-      dispatch({ type: "SET_MESSAGE", message: `Merged! Archive session? [y/n]` });
-    } catch (error) {
-      dispatch({
-        type: "SET_ERROR",
-        error: error instanceof Error ? error.message : "Failed to merge",
-      });
-    }
-  }, [confirmMerge, dispatch]);
-
-  const handleArchive = useCallback(async (session: Session) => {
-    try {
-      const metadata = await loadSessionMetadata(session.name);
-      const repoPath = metadata?.repoPath || (await getDefaultRepo());
-
-      // Save to archived sessions storage
-      await saveArchivedSession({
-        name: session.name,
-        branchName: metadata?.branchName || "",
-        repoPath: repoPath || "",
-        projectName: session.projectName,
-        linearIssue: session.linearIssue,
-        createdAt: session.created,
-        mergedAt: session.mergedAt || new Date().toISOString(),
-        archivedAt: new Date().toISOString(),
-      });
-
-      // Kill tmux session
-      await killSession(session.name);
-
-      // Remove worktree and delete branch
-      if (repoPath) {
-        await removeWorktree(session.name, repoPath);
-        if (metadata?.branchName) {
-          await deleteBranch(metadata.branchName, repoPath);
-        }
-      }
-
-      // Clean up Claude state file
-      cleanupStateFile(session.name);
-
-      setPendingArchive(null);
-      dispatch({ type: "SET_MESSAGE", message: `Session "${session.name}" archived` });
-      await onRefresh();
-    } catch (error) {
-      dispatch({
-        type: "SET_ERROR",
-        error: error instanceof Error ? error.message : "Failed to archive session",
-      });
-    }
-  }, [dispatch, onRefresh]);
-
   const handleInfo = useCallback((session: Session) => {
     dispatch({ type: "SELECT_SESSION", session });
     dispatch({ type: "SET_VIEW", view: "detail" });
@@ -214,7 +124,25 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       if (prev?.name === session.name) {
         setReplyMode(false);
         setReplyText("");
+        setDetailedGitStats(null);
+        setSelectedFileIndex(0);
+        setDiffLines(null);
+        setDiffScrollOffset(0);
         return null;
+      }
+      // Lazily fetch detailed git stats when preview opens
+      setDetailedGitStats(null);
+      setSelectedFileIndex(0);
+      setDiffLines(null);
+      setDiffScrollOffset(0);
+      if (session.worktreePath) {
+        setLoadingGitDetails(true);
+        getDetailedGitStats(session.worktreePath).then((stats) => {
+          setDetailedGitStats(stats ?? null);
+          setLoadingGitDetails(false);
+        }).catch(() => {
+          setLoadingGitDetails(false);
+        });
       }
       return session;
     });
@@ -241,15 +169,72 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       setReplyMode(false);
       setReplyText("");
       setPreviewSession(null);
+      setDetailedGitStats(null);
+      setSelectedFileIndex(0);
+      setDiffLines(null);
+      setDiffScrollOffset(0);
       setConfirmKill(null);
-      setConfirmMerge(null);
-      setPendingArchive(null);
       dispatch({ type: "CLEAR_MESSAGE" });
     }
   }, { isActive: replyMode });
 
+  const fileChanges = detailedGitStats?.fileChanges;
+  const hasFileChanges = previewSession && fileChanges && fileChanges.length > 0;
+
+  const openDiffForFile = useCallback((index: number) => {
+    if (!previewSession?.worktreePath || !fileChanges) return;
+    const file = fileChanges[index];
+    if (!file) return;
+    setLoadingDiff(true);
+    setDiffLines([]);
+    setDiffScrollOffset(0);
+    getFileDiff(previewSession.worktreePath, file.file)
+      .then((lines) => {
+        setDiffLines(lines);
+        setLoadingDiff(false);
+      })
+      .catch(() => {
+        setDiffLines([]);
+        setLoadingDiff(false);
+      });
+  }, [previewSession, fileChanges]);
+
   // All other keybindings disabled during reply mode
   useInput((input, _key) => {
+    // File list / diff navigation when preview is open with file changes
+    if (hasFileChanges && !replyMode) {
+      if (diffLines !== null) {
+        // Diff view mode: scroll or escape back
+        if (_key.upArrow) {
+          setDiffScrollOffset((o) => Math.max(0, o - 1));
+          return;
+        }
+        if (_key.downArrow) {
+          setDiffScrollOffset((o) => Math.min(diffLines.length - 1, o + 1));
+          return;
+        }
+        if (_key.escape || _key.leftArrow) {
+          setDiffLines(null);
+          setDiffScrollOffset(0);
+          return;
+        }
+      } else {
+        // File list mode: navigate or open diff
+        if (_key.upArrow) {
+          setSelectedFileIndex((i) => Math.max(0, i - 1));
+          return;
+        }
+        if (_key.downArrow) {
+          setSelectedFileIndex((i) => Math.min(fileChanges!.length - 1, i + 1));
+          return;
+        }
+        if (_key.rightArrow || input === "d") {
+          openDiffForFile(selectedFileIndex);
+          return;
+        }
+      }
+    }
+
     if (_key.tab && !replyMode) {
       dispatch({ type: "SET_TAB", tab: nextTab(state.activeTab) });
       return;
@@ -269,17 +254,6 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       handleKill(orderedSessions[selectedIndex]);
     } else if (input === "t" && orderedSessions[selectedIndex]) {
       handleAttachTerminal(orderedSessions[selectedIndex]);
-    } else if (input === "m" && orderedSessions[selectedIndex]) {
-      handleMerge(orderedSessions[selectedIndex]);
-    } else if (input === "y" && pendingArchive) {
-      const session = orderedSessions.find((s) => s.name === pendingArchive);
-      if (session) handleArchive(session);
-    } else if (input === "n" && pendingArchive) {
-      setPendingArchive(null);
-      dispatch({ type: "SET_MESSAGE", message: "Archive skipped — session kept with [merged] tag" });
-    } else if (input === "h") {
-      setShowArchived((prev) => !prev);
-      dispatch({ type: "SET_MESSAGE", message: showArchived ? "Hiding archived sessions" : "Showing archived sessions" });
     } else if (input === "f" && orderedSessions[selectedIndex]) {
       const session = orderedSessions[selectedIndex];
       if (session.worktreePath) {
@@ -289,9 +263,11 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       }
     } else if (_key.escape) {
       setPreviewSession(null);
+      setDetailedGitStats(null);
+      setSelectedFileIndex(0);
+      setDiffLines(null);
+      setDiffScrollOffset(0);
       setConfirmKill(null);
-      setConfirmMerge(null);
-      setPendingArchive(null);
       dispatch({ type: "CLEAR_MESSAGE" });
     }
   }, { isActive: !replyMode });
@@ -300,9 +276,11 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   const handleSelect = (index: number) => {
     if (index !== selectedIndex) {
       setConfirmKill(null);
-      setConfirmMerge(null);
-      setPendingArchive(null);
       setPreviewSession(null);
+      setDetailedGitStats(null);
+      setSelectedFileIndex(0);
+      setDiffLines(null);
+      setDiffScrollOffset(0);
       setReplyMode(false);
       setReplyText("");
     }
@@ -330,30 +308,56 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
         onInfo={handleInfo}
         sessionGroups={sessionGroups}
       />
-      {previewSession?.claudeLastMessage && (
+      {previewSession && (
         <Box
-          flexDirection="column"
           borderStyle="round"
           borderColor={colors.cardBorder}
           paddingX={2}
           paddingY={0}
           marginX={1}
         >
-          <Box>
-            <Text color={colors.muted} bold>{previewSession.name}</Text>
-            <Text color={colors.muted}>{" — last message:"}</Text>
-          </Box>
-          <Text color={colors.text} wrap="wrap">{previewSession.claudeLastMessage}</Text>
-          {!replyMode && (
-            <Box marginTop={1}>
-              <Text color={colors.muted} dimColor>Press [r] to reply</Text>
+          {/* Left side: last message */}
+          <Box flexDirection="column" width="50%">
+            <Box>
+              <Text color={colors.muted} bold>{previewSession.name}</Text>
+              <Text color={colors.muted}>{" — last message:"}</Text>
             </Box>
-          )}
-        </Box>
-      )}
-      {previewSession && !previewSession.claudeLastMessage && (
-        <Box paddingX={2}>
-          <Text color={colors.muted} dimColor>No last message available for {previewSession.name}</Text>
+            {previewSession.claudeLastMessage ? (
+              <Text color={colors.text} wrap="wrap">{previewSession.claudeLastMessage}</Text>
+            ) : (
+              <Text color={colors.muted} dimColor>No last message available</Text>
+            )}
+            {!replyMode && (
+              <Box marginTop={1}>
+                <Text color={colors.muted} dimColor>Press [r] to reply</Text>
+              </Box>
+            )}
+          </Box>
+
+          {/* Vertical separator */}
+          <Box flexDirection="column" marginX={1}>
+            <Text color={colors.separator}>│</Text>
+          </Box>
+
+          {/* Right side: git changes */}
+          <Box flexDirection="column" width="50%">
+            {loadingGitDetails ? (
+              <Text color={colors.muted} dimColor>Loading git changes…</Text>
+            ) : detailedGitStats?.fileChanges ? (
+              <GitChangesPanel
+                changes={detailedGitStats.fileChanges}
+                selectedFileIndex={selectedFileIndex}
+                diffLines={diffLines}
+                diffScrollOffset={diffScrollOffset}
+                loadingDiff={loadingDiff}
+              />
+            ) : (
+              <Box flexDirection="column">
+                <Text color={colors.muted} bold>Git Changes</Text>
+                <Text color={colors.muted} dimColor>No changes</Text>
+              </Box>
+            )}
+          </Box>
         </Box>
       )}
       {replyMode && previewSession && (
