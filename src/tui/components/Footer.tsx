@@ -15,15 +15,15 @@ interface KeyHint {
 
 const keyHints: Record<string, KeyHint[]> = {
   dashboard: [
-    { key: "↑↓", label: "navigate" },
-    { key: "enter", label: "manage" },
+    { key: "↑↓", label: "nav" },
     { key: "a", label: "attach" },
-    { key: "t", label: "terminal" },
+    { key: "t", label: "term" },
     { key: "c", label: "create" },
     { key: "k", label: "kill" },
+    { key: "m", label: "merge" },
+    { key: "h", label: "archive" },
     { key: "f", label: "finder" },
     { key: "r", label: "refresh" },
-    { key: "tab", label: "switch tab" },
     { key: "q", label: "quit" },
   ],
   projects: [

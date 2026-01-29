@@ -186,3 +186,33 @@ export async function worktreeExists(
   const result = await exec(`test -d "${worktreePath}"`, hostName);
   return result.success;
 }
+
+export async function checkWorktreeClean(
+  worktreePath: string,
+  hostName?: string
+): Promise<boolean> {
+  const result = await exec(`git -C "${worktreePath}" status --porcelain`, hostName);
+  return result.success && !result.stdout.trim();
+}
+
+export async function mergeToMain(
+  worktreePath: string,
+  branchName: string,
+  hostName?: string
+): Promise<CommandResult> {
+  // Fetch latest from origin
+  const fetchResult = await exec(`git -C "${worktreePath}" fetch origin`, hostName);
+  if (!fetchResult.success) {
+    return fetchResult;
+  }
+
+  // Merge origin/main into the branch to bring it up-to-date
+  const mergeResult = await exec(`git -C "${worktreePath}" merge origin/main --no-edit`, hostName);
+  if (!mergeResult.success) {
+    return mergeResult;
+  }
+
+  // Push the branch to main (fast-forward)
+  const pushResult = await exec(`git -C "${worktreePath}" push origin HEAD:main`, hostName);
+  return pushResult;
+}

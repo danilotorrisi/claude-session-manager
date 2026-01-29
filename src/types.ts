@@ -48,6 +48,19 @@ export interface Session {
   linearIssue?: LinearIssue;
   projectName?: string;
   gitStats?: GitStats;
+  archived?: boolean;
+  mergedAt?: string; // ISO timestamp
+}
+
+export interface ArchivedSession {
+  name: string;
+  branchName: string;
+  repoPath: string;
+  projectName?: string;
+  linearIssue?: LinearIssue;
+  createdAt: string;
+  mergedAt: string;
+  archivedAt: string;
 }
 
 export interface CommandResult {

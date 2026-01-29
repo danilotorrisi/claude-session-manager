@@ -6,10 +6,10 @@ import { StatusBar } from "../components/StatusBar";
 import type { Session } from "../../types";
 import type { AppState, AppAction } from "../types";
 import { nextTab } from "../types";
-import { killSession, getSessionName, sendToSession } from "../../lib/tmux";
-import { removeWorktree, loadSessionMetadata, deleteBranch } from "../../lib/worktree";
+import { killSession, getSessionName, sendToSession, listSessions } from "../../lib/tmux";
+import { removeWorktree, loadSessionMetadata, deleteBranch, checkWorktreeClean, mergeToMain, getWorktreePath } from "../../lib/worktree";
 import { exec } from "child_process";
-import { getDefaultRepo } from "../../lib/config";
+import { getDefaultRepo, saveArchivedSession } from "../../lib/config";
 import { cleanupStateFile } from "../../lib/claude-state";
 import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal } from "../index";
 import { colors } from "../theme";
@@ -35,12 +35,20 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   const { exit } = useApp();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [confirmKill, setConfirmKill] = useState<string | null>(null);
+  const [confirmMerge, setConfirmMerge] = useState<string | null>(null);
+  const [pendingArchive, setPendingArchive] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   const [previewSession, setPreviewSession] = useState<Session | null>(null);
   const [replyMode, setReplyMode] = useState(false);
   const [replyText, setReplyText] = useState("");
 
+  // Filter archived sessions unless toggled on
+  const visibleSessions = showArchived
+    ? state.sessions
+    : state.sessions.filter((s) => !s.archived);
+
   // Compute grouped sessions for display
-  const sessionGroups = groupSessionsByProject(state.sessions);
+  const sessionGroups = groupSessionsByProject(visibleSessions);
   const hasGroups = Array.from(sessionGroups.keys()).some((k) => k !== null);
 
   // Build flat ordered list matching group order
@@ -107,6 +115,95 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
     }
   }, [confirmKill, dispatch, onRefresh]);
 
+  const handleMerge = useCallback(async (session: Session) => {
+    if (session.archived) {
+      dispatch({ type: "SET_MESSAGE", message: "Cannot merge an archived session" });
+      return;
+    }
+
+    if (confirmMerge !== session.name) {
+      // First press: check worktree is clean
+      const wtPath = session.worktreePath || await getWorktreePath(session.name);
+      const clean = await checkWorktreeClean(wtPath);
+      if (!clean) {
+        dispatch({ type: "SET_MESSAGE", message: `Session has uncommitted changes — commit first` });
+        return;
+      }
+      setConfirmMerge(session.name);
+      dispatch({ type: "SET_MESSAGE", message: `Press 'm' again to merge "${session.name}" into main` });
+      return;
+    }
+
+    // Second press: execute merge
+    setConfirmMerge(null);
+    try {
+      const metadata = await loadSessionMetadata(session.name);
+      const wtPath = session.worktreePath || await getWorktreePath(session.name);
+      const branchName = metadata?.branchName || "";
+
+      dispatch({ type: "SET_MESSAGE", message: `Merging "${session.name}" into main...` });
+      const result = await mergeToMain(wtPath, branchName);
+
+      if (!result.success) {
+        dispatch({ type: "SET_ERROR", error: `Merge failed: ${result.stderr}` });
+        return;
+      }
+
+      // Mark session as merged in metadata
+      session.mergedAt = new Date().toISOString();
+
+      setPendingArchive(session.name);
+      dispatch({ type: "SET_MESSAGE", message: `Merged! Archive session? [y/n]` });
+    } catch (error) {
+      dispatch({
+        type: "SET_ERROR",
+        error: error instanceof Error ? error.message : "Failed to merge",
+      });
+    }
+  }, [confirmMerge, dispatch]);
+
+  const handleArchive = useCallback(async (session: Session) => {
+    try {
+      const metadata = await loadSessionMetadata(session.name);
+      const repoPath = metadata?.repoPath || (await getDefaultRepo());
+
+      // Save to archived sessions storage
+      await saveArchivedSession({
+        name: session.name,
+        branchName: metadata?.branchName || "",
+        repoPath: repoPath || "",
+        projectName: session.projectName,
+        linearIssue: session.linearIssue,
+        createdAt: session.created,
+        mergedAt: session.mergedAt || new Date().toISOString(),
+        archivedAt: new Date().toISOString(),
+      });
+
+      // Kill tmux session
+      await killSession(session.name);
+
+      // Remove worktree and delete branch
+      if (repoPath) {
+        await removeWorktree(session.name, repoPath);
+        if (metadata?.branchName) {
+          await deleteBranch(metadata.branchName, repoPath);
+        }
+      }
+
+      // Clean up Claude state file
+      cleanupStateFile(session.name);
+
+      setPendingArchive(null);
+      dispatch({ type: "SET_MESSAGE", message: `Session "${session.name}" archived` });
+      await onRefresh();
+    } catch (error) {
+      dispatch({
+        type: "SET_ERROR",
+        error: error instanceof Error ? error.message : "Failed to archive session",
+      });
+    }
+  }, [dispatch, onRefresh]);
+
   const handleInfo = useCallback((session: Session) => {
     dispatch({ type: "SELECT_SESSION", session });
     dispatch({ type: "SET_VIEW", view: "detail" });
@@ -145,6 +242,8 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       setReplyText("");
       setPreviewSession(null);
       setConfirmKill(null);
+      setConfirmMerge(null);
+      setPendingArchive(null);
       dispatch({ type: "CLEAR_MESSAGE" });
     }
   }, { isActive: replyMode });
@@ -170,6 +269,17 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       handleKill(orderedSessions[selectedIndex]);
     } else if (input === "t" && orderedSessions[selectedIndex]) {
       handleAttachTerminal(orderedSessions[selectedIndex]);
+    } else if (input === "m" && orderedSessions[selectedIndex]) {
+      handleMerge(orderedSessions[selectedIndex]);
+    } else if (input === "y" && pendingArchive) {
+      const session = orderedSessions.find((s) => s.name === pendingArchive);
+      if (session) handleArchive(session);
+    } else if (input === "n" && pendingArchive) {
+      setPendingArchive(null);
+      dispatch({ type: "SET_MESSAGE", message: "Archive skipped — session kept with [merged] tag" });
+    } else if (input === "h") {
+      setShowArchived((prev) => !prev);
+      dispatch({ type: "SET_MESSAGE", message: showArchived ? "Hiding archived sessions" : "Showing archived sessions" });
     } else if (input === "f" && orderedSessions[selectedIndex]) {
       const session = orderedSessions[selectedIndex];
       if (session.worktreePath) {
@@ -180,6 +290,8 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
     } else if (_key.escape) {
       setPreviewSession(null);
       setConfirmKill(null);
+      setConfirmMerge(null);
+      setPendingArchive(null);
       dispatch({ type: "CLEAR_MESSAGE" });
     }
   }, { isActive: !replyMode });
@@ -188,6 +300,8 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   const handleSelect = (index: number) => {
     if (index !== selectedIndex) {
       setConfirmKill(null);
+      setConfirmMerge(null);
+      setPendingArchive(null);
       setPreviewSession(null);
       setReplyMode(false);
       setReplyText("");

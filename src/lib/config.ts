@@ -1,6 +1,6 @@
 import { homedir } from "os";
 import { join } from "path";
-import type { Config, HostConfig, Project } from "../types";
+import type { Config, HostConfig, Project, ArchivedSession } from "../types";
 
 export function expandTilde(filepath: string): string {
   if (filepath === "~") return homedir();
@@ -94,4 +94,25 @@ export async function renameProject(oldName: string, newName: string): Promise<v
   }
 }
 
-export { CONFIG_DIR, CONFIG_FILE };
+const ARCHIVED_SESSIONS_FILE = join(CONFIG_DIR, "archived-sessions.json");
+
+export async function loadArchivedSessions(): Promise<ArchivedSession[]> {
+  try {
+    const file = Bun.file(ARCHIVED_SESSIONS_FILE);
+    if (await file.exists()) {
+      return await file.json();
+    }
+  } catch {
+    // File doesn't exist or is invalid
+  }
+  return [];
+}
+
+export async function saveArchivedSession(session: ArchivedSession): Promise<void> {
+  await ensureConfigDir();
+  const existing = await loadArchivedSessions();
+  existing.push(session);
+  await Bun.write(ARCHIVED_SESSIONS_FILE, JSON.stringify(existing, null, 2));
+}
+
+export { CONFIG_DIR, CONFIG_FILE, ARCHIVED_SESSIONS_FILE };

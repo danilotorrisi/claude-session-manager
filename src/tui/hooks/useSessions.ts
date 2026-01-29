@@ -5,7 +5,7 @@ import type { AppAction } from "../types";
 export function useSessions(dispatch: React.Dispatch<AppAction>) {
   const refresh = useCallback(async () => {
     try {
-      const sessions = await listSessions();
+      const sessions = await listSessions(undefined, { includeArchived: true });
       dispatch({ type: "SET_SESSIONS", sessions });
     } catch (error) {
       dispatch({

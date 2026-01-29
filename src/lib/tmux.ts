@@ -2,6 +2,7 @@ import type { Session, CommandResult, LinearIssue, GitStats } from "../types";
 import { exec } from "./ssh";
 import { readClaudeStates, getLastAssistantMessage } from "./claude-state";
 import { getWorktreePath, loadSessionMetadata } from "./worktree";
+import { loadArchivedSessions } from "./config";
 import { realpathSync } from "fs";
 
 const SESSION_PREFIX = "csm-";
@@ -17,7 +18,7 @@ export function parseSessionName(fullName: string): string | null {
   return null;
 }
 
-export async function listSessions(hostName?: string): Promise<Session[]> {
+export async function listSessions(hostName?: string, options?: { includeArchived?: boolean }): Promise<Session[]> {
   const result = await exec(
     'tmux list-sessions -F "#{session_name}|#{session_attached}|#{session_windows}|#{session_created}|#{pane_title}" 2>/dev/null || true',
     hostName
@@ -83,6 +84,26 @@ export async function listSessions(hostName?: string): Promise<Session[]> {
       }
     } catch {
       // Skip metadata enrichment on error
+    }
+  }
+
+  // Append archived sessions if requested
+  if (options?.includeArchived) {
+    const archivedSessions = await loadArchivedSessions();
+    for (const archived of archivedSessions) {
+      // Skip if there's already a live session with this name
+      if (sessions.some((s) => s.name === archived.name)) continue;
+      sessions.push({
+        name: archived.name,
+        fullName: `csm-${archived.name}`,
+        attached: false,
+        windows: 0,
+        created: archived.createdAt,
+        archived: true,
+        mergedAt: archived.mergedAt,
+        linearIssue: archived.linearIssue,
+        projectName: archived.projectName,
+      });
     }
   }
 
