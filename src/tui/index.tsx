@@ -190,12 +190,57 @@ export async function exitTuiAndAttachRemote(tmuxSessionName: string, hostName: 
 
   process.stdout.write("\x1B[2J\x1B[H");
 
-  const { spawnSync } = await import("child_process");
-  spawnSync("ssh", [
+  const sshControlOpts = [
     "-o", "ControlMaster=auto",
     "-o", "ControlPath=/tmp/csm-ssh-%r@%h:%p",
     "-o", "ControlPersist=600",
-    "-t", hostConfig.host, `bash -lc 'TERM=xterm-256color tmux attach -t ${tmuxSessionName}'`
+  ];
+
+  const { spawnSync } = await import("child_process");
+  spawnSync("ssh", [
+    ...sshControlOpts,
+    "-t", hostConfig.host, `bash -lc 'TERM=xterm-256color tmux attach -t ${tmuxSessionName}:claude'`
+  ], {
+    stdio: "inherit",
+    env: process.env,
+  });
+
+  process.stdout.write("\x1B[2J\x1B[H");
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  startTui();
+}
+
+export async function exitTuiAndAttachRemoteTerminal(tmuxSessionName: string, hostName: string, worktreePath?: string): Promise<void> {
+  const hostConfig = await getHost(hostName);
+  if (!hostConfig) return;
+
+  if (instance) {
+    instance.unmount();
+    instance = null;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  process.stdout.write("\x1B[2J\x1B[H");
+
+  const sshControlOpts = [
+    "-o", "ControlMaster=auto",
+    "-o", "ControlPath=/tmp/csm-ssh-%r@%h:%p",
+    "-o", "ControlPersist=600",
+  ];
+
+  const { spawnSync } = await import("child_process");
+
+  // Ensure the terminal window exists on the remote, then attach to it
+  const workDir = worktreePath || ".";
+  const remoteCmd = [
+    `tmux select-window -t ${tmuxSessionName}:terminal 2>/dev/null`,
+    `|| tmux new-window -t ${tmuxSessionName} -n terminal -c '${workDir}'`,
+    `; TERM=xterm-256color tmux attach -t ${tmuxSessionName}:terminal`,
+  ].join(" ");
+
+  spawnSync("ssh", [
+    ...sshControlOpts,
+    "-t", hostConfig.host, `bash -lc '${remoteCmd}'`
   ], {
     stdio: "inherit",
     env: process.env,

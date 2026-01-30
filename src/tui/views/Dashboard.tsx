@@ -13,7 +13,7 @@ import { exec as cpExec } from "child_process";
 import { exec as sshExec } from "../../lib/ssh";
 import { getDefaultRepo, saveArchivedSession } from "../../lib/config";
 import { cleanupStateFile } from "../../lib/claude-state";
-import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal, exitTuiAndAttachRemote } from "../index";
+import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal, exitTuiAndAttachRemote, exitTuiAndAttachRemoteTerminal } from "../index";
 import { colors } from "../theme";
 import { readFileSync, readdirSync, unlinkSync } from "fs";
 
@@ -129,7 +129,7 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   const handleAttachTerminal = useCallback(async (session: Session) => {
     const tmuxSessionName = getSessionName(session.name);
     if (session.host) {
-      await exitTuiAndAttachRemote(tmuxSessionName, session.host);
+      await exitTuiAndAttachRemoteTerminal(tmuxSessionName, session.host, session.worktreePath);
     } else {
       await exitTuiAndAttachTerminal(session.name, tmuxSessionName, session.worktreePath);
     }

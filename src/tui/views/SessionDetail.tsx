@@ -11,7 +11,7 @@ import {
 } from "../../lib/worktree";
 import { getDefaultRepo } from "../../lib/config";
 import { cleanupStateFile } from "../../lib/claude-state";
-import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal } from "../index";
+import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal, exitTuiAndAttachRemote, exitTuiAndAttachRemoteTerminal } from "../index";
 import { colors } from "../theme";
 
 interface SessionDetailProps {
@@ -44,13 +44,21 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
   const handleAttach = useCallback(async () => {
     if (!session) return;
     const tmuxSessionName = getSessionName(session.name);
-    await exitTuiAndAttachAutoReturn(session.name, tmuxSessionName);
+    if (session.host) {
+      await exitTuiAndAttachRemote(tmuxSessionName, session.host);
+    } else {
+      await exitTuiAndAttachAutoReturn(session.name, tmuxSessionName);
+    }
   }, [session]);
 
   const handleAttachTerminal = useCallback(async () => {
     if (!session) return;
     const tmuxSessionName = getSessionName(session.name);
-    await exitTuiAndAttachTerminal(session.name, tmuxSessionName, worktreePath || undefined);
+    if (session.host) {
+      await exitTuiAndAttachRemoteTerminal(tmuxSessionName, session.host, session.worktreePath);
+    } else {
+      await exitTuiAndAttachTerminal(session.name, tmuxSessionName, worktreePath || undefined);
+    }
   }, [session, worktreePath]);
 
   const handleKill = useCallback(async () => {
