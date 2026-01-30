@@ -1,6 +1,10 @@
-# Claude Session Manager (CSM)
-
-A CLI tool to manage Claude Code sessions across local and remote machines using tmux and git worktrees. Features both an interactive TUI dashboard and traditional CLI commands.
+<div align="center">
+  <img src="icon.png" alt="Claude Session Manager" width="200" />
+  
+  # Claude Session Manager (CSM)
+  
+  A CLI tool to manage Claude Code sessions across local and remote machines using tmux and git worktrees. Features both an interactive TUI dashboard and traditional CLI commands.
+</div>
 
 ## Features
 
