@@ -143,7 +143,7 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
 
     // Create tmux session
     const worktreePath = await getWorktreePath(name);
-    const sessionResult = await createSession(name, worktreePath, hostName, issue);
+    const sessionResult = await createSession(name, worktreePath, hostName, issue, selectedProject || undefined);
     if (!sessionResult.success) {
       throw new Error(sessionResult.stderr || "Failed to create session");
     }

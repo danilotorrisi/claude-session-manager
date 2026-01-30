@@ -20,6 +20,9 @@ export interface HostConfig {
 export interface Project {
   name: string;
   repoPath: string;
+  setupScript?: string;
+  envVars?: Record<string, string>;
+  runScripts?: Record<string, string>;
 }
 
 export interface R2Config {

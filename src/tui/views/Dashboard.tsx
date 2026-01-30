@@ -5,14 +5,14 @@ import Spinner from "ink-spinner";
 import { SessionList } from "../components/SessionList";
 import { StatusBar } from "../components/StatusBar";
 import { GitChangesPanel } from "../components/GitChangesPanel";
-import type { Session, GitStats, LinearIssue } from "../../types";
+import type { Session, GitStats, LinearIssue, Project } from "../../types";
 import type { AppState, AppAction } from "../types";
 import { nextTab } from "../types";
 import { killSession, getSessionName, sendToSession, getDetailedGitStats, getFileDiff, renameSession, writeClaudeContext } from "../../lib/tmux";
 import { removeWorktree, loadSessionMetadata, deleteBranch, checkWorktreeClean, squashMergeToMain, generateCommitMessage, getWorktreePath, updateSessionProject, updateSessionTask } from "../../lib/worktree";
 import { exec as cpExec } from "child_process";
 import { exec as sshExec } from "../../lib/ssh";
-import { getDefaultRepo, saveArchivedSession, getLinearApiKey } from "../../lib/config";
+import { getDefaultRepo, saveArchivedSession, getLinearApiKey, getProjects } from "../../lib/config";
 import { searchIssues } from "../../lib/linear";
 import { cleanupStateFile } from "../../lib/claude-state";
 import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal, exitTuiAndAttachRemote, exitTuiAndAttachRemoteTerminal } from "../index";
@@ -107,6 +107,12 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   const [editLinearApiKey, setEditLinearApiKey] = useState<string | null>(null);
   const [editOriginalSession, setEditOriginalSession] = useState<Session | null>(null);
   const editDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Run script picker state
+  const [runScriptMode, setRunScriptMode] = useState(false);
+  const [runScriptEntries, setRunScriptEntries] = useState<[string, string][]>([]);
+  const [runScriptSelectedIdx, setRunScriptSelectedIdx] = useState(0);
+  const [runScriptSession, setRunScriptSession] = useState<Session | null>(null);
 
   // Poll for feedback report notifications
   useEffect(() => {
@@ -528,12 +534,48 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       });
   }, [previewSession, fileChanges]);
 
+  // Run script picker input
+  useInput((input, key) => {
+    if (key.escape) {
+      setRunScriptMode(false);
+      setRunScriptEntries([]);
+      setRunScriptSession(null);
+      dispatch({ type: "CLEAR_MESSAGE" });
+      return;
+    }
+    if (key.upArrow) {
+      setRunScriptSelectedIdx((i) => Math.max(0, i - 1));
+      return;
+    }
+    if (key.downArrow) {
+      setRunScriptSelectedIdx((i) => Math.min(runScriptEntries.length - 1, i + 1));
+      return;
+    }
+    if (key.return && runScriptSession && runScriptEntries.length > 0) {
+      const [scriptName, command] = runScriptEntries[runScriptSelectedIdx];
+      const sessionName = getSessionName(runScriptSession.name);
+      const escaped = command.replace(/'/g, "'\\''");
+      sshExec(`tmux send-keys -t ${sessionName}:terminal '${escaped}' Enter`, runScriptSession.host).then(() => {
+        dispatch({ type: "SET_MESSAGE", message: `Running "${scriptName}" in ${runScriptSession.name}` });
+      }).catch(() => {
+        dispatch({ type: "SET_ERROR", error: `Failed to run "${scriptName}"` });
+      });
+      setRunScriptMode(false);
+      setRunScriptEntries([]);
+      setRunScriptSession(null);
+      return;
+    }
+  }, { isActive: runScriptMode });
+
   // Esc handling always active (to exit reply mode, editing mode, or edit modal)
   useInput((_input, key) => {
     if (key.escape) {
       setReplyMode(false);
       setReplyText("");
       closeEditModal();
+      setRunScriptMode(false);
+      setRunScriptEntries([]);
+      setRunScriptSession(null);
       setPreviewSession(null);
       setConfirmKill(null);
       setMergeState({ phase: "idle" });
@@ -680,6 +722,23 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       dispatch({ type: "SET_MESSAGE", message: "Archive skipped — session kept with [merged] tag" });
     } else if (input === "e" && orderedSessions[selectedIndex]) {
       openEditModal(orderedSessions[selectedIndex]);
+    } else if (input === "x" && orderedSessions[selectedIndex]) {
+      const session = orderedSessions[selectedIndex];
+      if (!session.projectName) {
+        dispatch({ type: "SET_MESSAGE", message: "No project assigned to this session" });
+      } else {
+        getProjects().then((projects) => {
+          const project = projects.find((p) => p.name === session.projectName);
+          if (!project?.runScripts || Object.keys(project.runScripts).length === 0) {
+            dispatch({ type: "SET_MESSAGE", message: `No run scripts configured for project "${session.projectName}"` });
+          } else {
+            setRunScriptEntries(Object.entries(project.runScripts));
+            setRunScriptSelectedIdx(0);
+            setRunScriptSession(session);
+            setRunScriptMode(true);
+          }
+        });
+      }
     } else if (input === "f" && orderedSessions[selectedIndex]) {
       const session = orderedSessions[selectedIndex];
       if (session.worktreePath) {
@@ -717,7 +776,7 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       setDiffScrollOffset(0);
       dispatch({ type: "CLEAR_MESSAGE" });
     }
-  }, { isActive: !replyMode && !isEditing && !editMode });
+  }, { isActive: !replyMode && !isEditing && !editMode && !runScriptMode });
 
   // Reset confirm state when selection changes
   const handleSelect = (index: number) => {
@@ -752,7 +811,7 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       <SessionList
         sessions={orderedSessions}
         selectedIndex={selectedIndex}
-        inputActive={!replyMode && !isEditing && !editMode}
+        inputActive={!replyMode && !isEditing && !editMode && !runScriptMode}
         loading={state.loading}
         onSelect={handleSelect}
         onActivate={handleAttach}
@@ -994,6 +1053,40 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
           <Box marginTop={0}>
             <Text color={colors.muted} dimColor>
               [Tab] next · [Shift+Tab] prev · [Ctrl+S] save · [Esc] cancel
+            </Text>
+          </Box>
+        </Box>
+      )}
+      {runScriptMode && runScriptSession && (
+        <Box
+          flexDirection="column"
+          borderStyle="round"
+          borderColor={colors.accent}
+          marginX={1}
+          paddingX={2}
+          paddingY={0}
+        >
+          <Box marginBottom={0}>
+            <Text backgroundColor={colors.accent} color={colors.textBright} bold>
+              {" Run Script — "}{runScriptSession.name}{" "}
+            </Text>
+          </Box>
+          {runScriptEntries.map(([name, command], idx) => (
+            <Box key={name}>
+              <Text
+                color={idx === runScriptSelectedIdx ? colors.textBright : colors.muted}
+                backgroundColor={idx === runScriptSelectedIdx ? colors.primary : undefined}
+                bold={idx === runScriptSelectedIdx}
+              >
+                {idx === runScriptSelectedIdx ? "› " : "  "}
+                {name}
+              </Text>
+              <Text color={colors.muted} dimColor> — {command.length > 50 ? command.slice(0, 47) + "..." : command}</Text>
+            </Box>
+          ))}
+          <Box marginTop={0}>
+            <Text color={colors.muted} dimColor>
+              ↑↓ navigate · Enter run · Esc cancel
             </Text>
           </Box>
         </Box>

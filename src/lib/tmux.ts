@@ -1,4 +1,4 @@
-import type { Session, CommandResult, LinearIssue, GitStats, GitFileChange } from "../types";
+import type { Session, CommandResult, LinearIssue, GitStats, GitFileChange, Project } from "../types";
 import { exec } from "./ssh";
 import { readClaudeStates, readRemoteClaudeStates, getLastAssistantMessage } from "./claude-state";
 import { getWorktreePath, loadSessionMetadata } from "./worktree";
@@ -460,7 +460,8 @@ export async function createSession(
   name: string,
   workingDir: string,
   hostName?: string,
-  linearIssue?: LinearIssue
+  linearIssue?: LinearIssue,
+  project?: Project
 ): Promise<CommandResult> {
   const sessionName = getSessionName(name);
 
@@ -470,13 +471,35 @@ export async function createSession(
   // Write .claude/settings.json with permissions and safety hooks (merges with existing)
   await writeClaudeSettings(workingDir, hostName);
 
-  // Create detached tmux session with a login shell, then run claude
-  // Using a login shell ensures proper environment (PATH, etc.)
-  // The shell stays open if claude exits, allowing debugging
-  const command = `tmux new-session -d -s ${sessionName} -c "${workingDir}" -n claude && tmux send-keys -t ${sessionName}:claude 'claude' Enter && tmux new-window -t ${sessionName} -n terminal -c "${workingDir}" && tmux select-window -t ${sessionName}:claude`;
+  // Write inline setup script from project config if present
+  if (project?.setupScript) {
+    const escaped = project.setupScript.replace(/'/g, "'\\''");
+    await exec(`echo '${escaped}' > "${workingDir}/.csm-setup.sh"`, hostName);
+    await exec(`chmod +x "${workingDir}/.csm-setup.sh"`, hostName);
+  }
+
+  // Create detached tmux session with both windows, but don't launch claude yet
+  // so env vars can be exported into the claude window shell first
+  const command = `tmux new-session -d -s ${sessionName} -c "${workingDir}" -n claude && tmux new-window -t ${sessionName} -n terminal -c "${workingDir}" && tmux select-window -t ${sessionName}:claude`;
   const result = await exec(command, hostName);
 
   if (result.success) {
+    // Inject environment variables into tmux session and both windows
+    if (project?.envVars) {
+      for (const [key, value] of Object.entries(project.envVars)) {
+        const escapedValue = value.replace(/"/g, '\\"');
+        // Set on session level for future windows/panes
+        await exec(`tmux set-environment -t ${sessionName} ${key} "${escapedValue}"`, hostName);
+        // Export into both existing windows
+        const shellEscaped = value.replace(/'/g, "'\\''");
+        await exec(`tmux send-keys -t ${sessionName}:claude 'export ${key}='"'"'${shellEscaped}'"'"'' Enter`, hostName);
+        await exec(`tmux send-keys -t ${sessionName}:terminal 'export ${key}='"'"'${shellEscaped}'"'"'' Enter`, hostName);
+      }
+    }
+
+    // Now launch claude (env vars are already in the shell)
+    await exec(`tmux send-keys -t ${sessionName}:claude 'claude' Enter`, hostName);
+
     await runSetupScript(sessionName, workingDir, hostName);
   }
 
