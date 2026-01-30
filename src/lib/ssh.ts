@@ -4,6 +4,15 @@ import { homedir } from "os";
 import type { CommandResult } from "../types";
 import { getHost } from "./config";
 
+/** SSH ControlMaster args for connection multiplexing. */
+function sshControlArgs(): string[] {
+  return [
+    "-o", "ControlMaster=auto",
+    "-o", "ControlPath=/tmp/csm-ssh-%r@%h:%p",
+    "-o", "ControlPersist=600",
+  ];
+}
+
 export async function execRemote(
   hostName: string,
   command: string
@@ -19,7 +28,7 @@ export async function execRemote(
   }
 
   const escaped = command.replace(/'/g, "'\\''");
-  const proc = Bun.spawn(["ssh", hostConfig.host, `bash -lc '${escaped}'`], {
+  const proc = Bun.spawn(["ssh", ...sshControlArgs(), hostConfig.host, `bash -lc '${escaped}'`], {
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -79,7 +88,7 @@ export async function testConnection(
 
   const start = Date.now();
   const proc = Bun.spawn(
-    ["ssh", "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", hostConfig.host, "echo ok"],
+    ["ssh", ...sshControlArgs(), "-o", "ConnectTimeout=5", "-o", "BatchMode=yes", hostConfig.host, "echo ok"],
     { stdout: "pipe", stderr: "pipe" }
   );
 
@@ -106,6 +115,7 @@ export async function getHostInfo(
   const proc = Bun.spawn(
     [
       "ssh",
+      ...sshControlArgs(),
       "-o", "ConnectTimeout=5",
       "-o", "BatchMode=yes",
       hostConfig.host,
@@ -282,7 +292,7 @@ async function writeRemoteFile(
   const chmodCmd = options?.executable ? ` && chmod +x ${remotePath}` : "";
   const cmd = `mkdir -p ${dir} && echo '${b64}' | base64 -d > ${remotePath}${chmodCmd}`;
 
-  const proc = Bun.spawn(["ssh", sshHost, cmd], {
+  const proc = Bun.spawn(["ssh", ...sshControlArgs(), sshHost, cmd], {
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -454,7 +464,7 @@ export async function attachRemote(hostName: string, sessionName: string): Promi
   }
 
   // Use exec to replace the current process with SSH
-  const args = ["ssh", "-t", hostConfig.host, `bash -lc 'TERM=xterm-256color tmux attach -t ${sessionName}'`];
+  const args = ["ssh", ...sshControlArgs(), "-t", hostConfig.host, `bash -lc 'TERM=xterm-256color tmux attach -t ${sessionName}'`];
 
   const proc = Bun.spawn(args, {
     stdin: "inherit",

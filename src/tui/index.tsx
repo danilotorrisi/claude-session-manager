@@ -190,7 +190,12 @@ export async function exitTuiAndAttachRemote(tmuxSessionName: string, hostName: 
   process.stdout.write("\x1B[2J\x1B[H");
 
   const { spawnSync } = await import("child_process");
-  spawnSync("ssh", ["-t", hostConfig.host, `bash -lc 'TERM=xterm-256color tmux attach -t ${tmuxSessionName}'`], {
+  spawnSync("ssh", [
+    "-o", "ControlMaster=auto",
+    "-o", "ControlPath=/tmp/csm-ssh-%r@%h:%p",
+    "-o", "ControlPersist=600",
+    "-t", hostConfig.host, `bash -lc 'TERM=xterm-256color tmux attach -t ${tmuxSessionName}'`
+  ], {
     stdio: "inherit",
     env: process.env,
   });
