@@ -1,6 +1,6 @@
 {
   "name": "claude-session-manager",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "CLI tool to manage Claude Code sessions across local and remote machines using tmux and git worktrees",
   "type": "module",
   "bin": {

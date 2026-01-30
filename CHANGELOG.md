@@ -2,7 +2,7 @@
 
 All notable changes to Claude Session Manager (CSM) are documented here.
 
-## Unreleased
+## 1.2.0
 
 ### Added
 - **Project setup scripts** — inline shell script per project, written to `.csm-setup.sh` and executed in the terminal window on session create
@@ -16,31 +16,14 @@ All notable changes to Claude Session Manager (CSM) are documented here.
 - **Config TUI tab** — manage CSM configuration from within the TUI
 - **Claude settings management** — auto-generate `.claude/settings.json` with tool permissions and safety hooks
 - **Remote auto-detach** — automatically return to TUI when Claude starts working on remote sessions
-
-## 0.9.0
-
-### Added
 - **SSH ControlMaster multiplexing** — persistent SSH connections for faster remote operations
 - **Host renaming** — rename configured SSH hosts from the TUI
 - **Session list persistence** — preserve session list across tmux attach/detach cycles
 - **Remote host hook installation** — auto-install CSM hooks on remote hosts
-
-### Fixed
-- Remote session SSH quoting, reply, and git stats
-- TUI layout pinning header/tabs at top and footer at bottom
-- Remote session attach targeting correct tmux window
-
-## 0.8.0
-
-### Added
 - **Enhanced Hosts tab** — status indicators, latency, RAM usage, and local host display
 - **Squash merge with AI commit messages** — Claude-generated commit messages for merge-to-main
 - **Git changes preview panel** — interactive per-file diff view in the dashboard
 - **Feedback loop system** — automatic task completion reports
-
-## 0.7.0
-
-### Added
 - **Merge-to-main and archive** — squash merge session branches and archive completed sessions
 - **Git stats column** — show files changed, insertions, and deletions per session
 - **Terminal window attach** — press `t` to attach directly to the terminal window
@@ -48,34 +31,29 @@ All notable changes to Claude Session Manager (CSM) are documented here.
 - **Tasks tab** — Linear issue state management with browser open support
 
 ### Fixed
+- Remote session SSH quoting, reply, and git stats
+- TUI layout pinning header/tabs at top and footer at bottom
+- Remote session attach targeting correct tmux window
 - Clean check ignoring untracked files during merge
 - Session status reporting with staleness checks and transcript fallback
 
-## 0.6.0
+## 1.1.0
 
 ### Added
 - **Projects feature** — organize sessions by project with tabbed TUI navigation
 - **Project setup scripts** — run setup commands when creating a session
 - **Auto-return to TUI** — automatically return from tmux when Claude starts working
-
-## 0.5.0
-
-### Added
 - **Claude Code session title** — display session titles from tmux pane titles
 - **Full-screen TUI** — improved layout using full terminal height
 - **Return to TUI** — automatically relaunch TUI after detaching from tmux
 - **Worktree conflict recovery** — detect stale worktrees and offer cleanup
+- **Interactive TUI dashboard** — React + Ink based terminal UI
+- **TUI component tests** — test coverage for dashboard components
 
 ### Fixed
 - Terminal handling when attaching from TUI
 
-## 0.4.0
-
-### Added
-- **Interactive TUI dashboard** — React + Ink based terminal UI
-- **TUI component tests** — test coverage for dashboard components
-
-## 0.1.0
+## 1.0.0
 
 ### Added
 - Initial release of Claude Session Manager
