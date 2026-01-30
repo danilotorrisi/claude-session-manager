@@ -61,7 +61,6 @@ export function App() {
     if (state.view === "dashboard") {
       return (
         <>
-          {renderTabBar()}
           {state.activeTab === "sessions" ? (
             <Dashboard
               state={state}
@@ -120,8 +119,9 @@ export function App() {
   const terminalHeight = stdout?.rows || 24;
 
   return (
-    <Box flexDirection="column" minHeight={terminalHeight}>
+    <Box flexDirection="column" height={terminalHeight}>
       <Header />
+      {state.view === "dashboard" && renderTabBar()}
       <Box flexDirection="column" flexGrow={1}>
         {renderView()}
       </Box>
