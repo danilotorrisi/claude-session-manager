@@ -190,6 +190,20 @@ export async function renameProject(oldName: string, newName: string): Promise<v
   }
 }
 
+export async function updateProject(oldName: string, updated: Project): Promise<void> {
+  const config = await loadConfig();
+  const normalized = { ...updated, repoPath: normalizeProjectPath(updated.repoPath, config) };
+  const projects = config.projects || [];
+  const idx = projects.findIndex((p) => p.name === oldName);
+  if (idx >= 0) {
+    projects[idx] = normalized;
+  } else {
+    projects.push(normalized);
+  }
+  config.projects = projects;
+  await saveConfig(config);
+}
+
 export interface ArchivedSession {
   name: string;
   branchName: string;

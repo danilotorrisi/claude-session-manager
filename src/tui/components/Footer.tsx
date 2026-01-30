@@ -29,7 +29,7 @@ const keyHints: Record<string, KeyHint[]> = {
   projects: [
     { key: "↑↓", label: "navigate" },
     { key: "c", label: "create" },
-    { key: "r", label: "rename" },
+    { key: "e", label: "edit" },
     { key: "d", label: "delete" },
     { key: "tab", label: "switch tab" },
     { key: "q", label: "quit" },
@@ -48,6 +48,7 @@ const keyHints: Record<string, KeyHint[]> = {
   tasks: [
     { key: "↑↓", label: "navigate" },
     { key: "enter", label: "detail" },
+    { key: "c", label: "create session" },
     { key: "s", label: "status" },
     { key: "o", label: "open" },
     { key: "/", label: "search" },

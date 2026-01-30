@@ -4,7 +4,7 @@ import TextInput from "ink-text-input";
 import type { AppState, AppAction } from "../types";
 import { nextTab } from "../types";
 import type { Project } from "../../types";
-import { addProject, deleteProject, renameProject, loadConfig, getProjectsBase } from "../../lib/config";
+import { addProject, deleteProject, updateProject, loadConfig, getProjectsBase } from "../../lib/config";
 import { colors } from "../theme";
 
 interface ProjectsProps {
@@ -13,8 +13,8 @@ interface ProjectsProps {
   onReloadProjects: () => Promise<void>;
 }
 
-type Mode = "list" | "create" | "rename";
-type CreateField = "name" | "path";
+type Mode = "list" | "create" | "edit";
+type FormField = "name" | "path";
 
 export function Projects({ state, dispatch, onReloadProjects }: ProjectsProps) {
   const { exit } = useApp();
@@ -25,12 +25,15 @@ export function Projects({ state, dispatch, onReloadProjects }: ProjectsProps) {
   // Create mode state
   const [createName, setCreateName] = useState("");
   const [createPath, setCreatePath] = useState("");
-  const [createField, setCreateField] = useState<CreateField>("name");
+  const [createField, setCreateField] = useState<FormField>("name");
   const [createError, setCreateError] = useState<string | null>(null);
 
-  // Rename mode state
-  const [renameName, setRenameName] = useState("");
-  const [renameError, setRenameError] = useState<string | null>(null);
+  // Edit mode state
+  const [editName, setEditName] = useState("");
+  const [editPath, setEditPath] = useState("");
+  const [editField, setEditField] = useState<FormField>("name");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editOriginalName, setEditOriginalName] = useState("");
 
   // Projects base
   const [projectsBase, setProjectsBase] = useState<string | null>(null);
@@ -80,30 +83,30 @@ export function Projects({ state, dispatch, onReloadProjects }: ProjectsProps) {
     setSelectedIndex((i) => Math.max(0, Math.min(i, projects.length - 2)));
   }, [confirmDelete, projects.length, dispatch, onReloadProjects]);
 
-  const handleRename = useCallback(async () => {
-    const project = projects[selectedIndex];
-    if (!project) return;
-    if (!renameName.trim()) {
-      setRenameError("Name cannot be empty");
+  const handleEdit = useCallback(async () => {
+    if (!editName.trim()) {
+      setEditError("Project name is required");
       return;
     }
-    const newName = renameName.trim();
-    if (newName === project.name) {
-      setMode("list");
+    if (!editPath.trim()) {
+      setEditError("Repository path is required");
       return;
     }
-    await renameProject(project.name, newName);
+    const updated: Project = {
+      name: editName.trim(),
+      repoPath: editPath.trim(),
+    };
+    await updateProject(editOriginalName, updated);
     await onReloadProjects();
-    setRenameName("");
-    setRenameError(null);
+    setEditName("");
+    setEditPath("");
+    setEditError(null);
     setMode("list");
-    dispatch({ type: "SET_MESSAGE", message: `Project renamed to "${newName}"` });
-  }, [projects, selectedIndex, renameName, dispatch, onReloadProjects]);
+    dispatch({ type: "SET_MESSAGE", message: `Project "${updated.name}" updated` });
+  }, [editName, editPath, editOriginalName, dispatch, onReloadProjects]);
 
   // List mode input
   useInput((input, key) => {
-    if (mode !== "list") return;
-
     if (input === "q") {
       exit();
     } else if (key.tab) {
@@ -111,10 +114,14 @@ export function Projects({ state, dispatch, onReloadProjects }: ProjectsProps) {
     } else if (input === "c") {
       setMode("create");
       setCreateField("name");
-    } else if (input === "r" && projects[selectedIndex]) {
-      setRenameName(projects[selectedIndex].name);
-      setRenameError(null);
-      setMode("rename");
+    } else if (input === "e" && projects[selectedIndex]) {
+      const p = projects[selectedIndex];
+      setEditOriginalName(p.name);
+      setEditName(p.name);
+      setEditPath(p.repoPath);
+      setEditField("name");
+      setEditError(null);
+      setMode("edit");
     } else if (input === "d" && projects[selectedIndex]) {
       handleDelete(projects[selectedIndex]);
     } else if (key.upArrow) {
@@ -131,8 +138,6 @@ export function Projects({ state, dispatch, onReloadProjects }: ProjectsProps) {
 
   // Create mode input
   useInput((_input, key) => {
-    if (mode !== "create") return;
-
     if (key.escape) {
       setMode("list");
       setCreateName("");
@@ -147,86 +152,45 @@ export function Projects({ state, dispatch, onReloadProjects }: ProjectsProps) {
     }
   }, { isActive: mode === "create" });
 
-  // Rename mode input
+  // Edit mode input
   useInput((_input, key) => {
-    if (mode !== "rename") return;
-
     if (key.escape) {
       setMode("list");
-      setRenameName("");
-      setRenameError(null);
-    } else if (key.return) {
-      handleRename();
+      setEditName("");
+      setEditPath("");
+      setEditError(null);
+    } else if (key.tab) {
+      setEditField((f) => (f === "name" ? "path" : "name"));
+    } else if (key.return && editField === "path") {
+      handleEdit();
+    } else if (key.return && editField === "name") {
+      setEditField("path");
     }
-  }, { isActive: mode === "rename" });
+  }, { isActive: mode === "edit" });
 
-  if (mode === "rename") {
-    const project = projects[selectedIndex];
-    return (
-      <Box flexDirection="column" paddingX={1} paddingY={1}>
-        <Box marginBottom={1}>
-          <Text backgroundColor={colors.accent} color={colors.textBright} bold>
-            {" ◆ Rename Project "}
-          </Text>
-        </Box>
-
-        {renameError && (
-          <Box marginBottom={1} paddingX={1}>
-            <Text color={colors.danger}>✗ {renameError}</Text>
-          </Box>
-        )}
-
-        <Box marginBottom={1} paddingX={1}>
-          <Text color={colors.muted}>Renaming: {project?.name}</Text>
-        </Box>
-
-        <Box
-          flexDirection="column"
-          borderStyle="round"
-          borderColor={colors.primary}
-          paddingX={2}
-          marginBottom={1}
-        >
-          <Box>
-            <Box width={16}>
-              <Text color={colors.textBright} backgroundColor={colors.primary} bold>
-                New Name:
-              </Text>
-            </Box>
-            <Box>
-              <TextInput
-                value={renameName}
-                onChange={setRenameName}
-                placeholder="new-name"
-              />
-            </Box>
-          </Box>
-        </Box>
-
-        <Box marginTop={1} paddingX={1}>
-          <Text color={colors.muted}>
-            [Enter] confirm · [Esc] cancel
-          </Text>
-        </Box>
-      </Box>
-    );
-  }
-
-  if (mode === "create") {
-    const fieldBorderColor = (field: CreateField) =>
-      createField === field ? colors.primary : colors.cardBorder;
+  const renderForm = (opts: {
+    title: string;
+    nameValue: string;
+    pathValue: string;
+    activeField: FormField;
+    error: string | null;
+    onNameChange: (v: string) => void;
+    onPathChange: (v: string) => void;
+  }) => {
+    const fieldBorderColor = (field: FormField) =>
+      opts.activeField === field ? colors.primary : colors.cardBorder;
 
     return (
       <Box flexDirection="column" paddingX={1} paddingY={1}>
         <Box marginBottom={1}>
           <Text backgroundColor={colors.accent} color={colors.textBright} bold>
-            {" ◆ Create New Project "}
+            {` ◆ ${opts.title} `}
           </Text>
         </Box>
 
-        {createError && (
+        {opts.error && (
           <Box marginBottom={1} paddingX={1}>
-            <Text color={colors.danger}>✗ {createError}</Text>
+            <Text color={colors.danger}>✗ {opts.error}</Text>
           </Box>
         )}
 
@@ -239,19 +203,19 @@ export function Projects({ state, dispatch, onReloadProjects }: ProjectsProps) {
         >
           <Box>
             <Box width={16}>
-              <Text color={createField === "name" ? colors.textBright : colors.muted} backgroundColor={createField === "name" ? colors.primary : undefined} bold={createField === "name"}>
+              <Text color={opts.activeField === "name" ? colors.textBright : colors.muted} backgroundColor={opts.activeField === "name" ? colors.primary : undefined} bold={opts.activeField === "name"}>
                 Project Name:
               </Text>
             </Box>
             <Box>
-              {createField === "name" ? (
+              {opts.activeField === "name" ? (
                 <TextInput
-                  value={createName}
-                  onChange={setCreateName}
+                  value={opts.nameValue}
+                  onChange={opts.onNameChange}
                   placeholder="my-project"
                 />
               ) : (
-                <Text>{createName || <Text color={colors.muted}>my-project</Text>}</Text>
+                <Text>{opts.nameValue || <Text color={colors.muted}>my-project</Text>}</Text>
               )}
             </Box>
           </Box>
@@ -266,19 +230,19 @@ export function Projects({ state, dispatch, onReloadProjects }: ProjectsProps) {
         >
           <Box>
             <Box width={16}>
-              <Text color={createField === "path" ? colors.textBright : colors.muted} backgroundColor={createField === "path" ? colors.primary : undefined} bold={createField === "path"}>
+              <Text color={opts.activeField === "path" ? colors.textBright : colors.muted} backgroundColor={opts.activeField === "path" ? colors.primary : undefined} bold={opts.activeField === "path"}>
                 Repo Path:
               </Text>
             </Box>
             <Box>
-              {createField === "path" ? (
+              {opts.activeField === "path" ? (
                 <TextInput
-                  value={createPath}
-                  onChange={setCreatePath}
+                  value={opts.pathValue}
+                  onChange={opts.onPathChange}
                   placeholder={projectsBase ? "org/repo-name" : "/path/to/repo"}
                 />
               ) : (
-                <Text>{createPath || <Text color={colors.muted}>{projectsBase ? "org/repo-name" : "/path/to/repo"}</Text>}</Text>
+                <Text>{opts.pathValue || <Text color={colors.muted}>{projectsBase ? "org/repo-name" : "/path/to/repo"}</Text>}</Text>
               )}
             </Box>
           </Box>
@@ -291,11 +255,35 @@ export function Projects({ state, dispatch, onReloadProjects }: ProjectsProps) {
 
         <Box marginTop={1} paddingX={1}>
           <Text color={colors.muted}>
-            [Tab] switch field · [Enter] on path to create · [Esc] cancel
+            [Tab] switch field · [Enter] on path to save · [Esc] cancel
           </Text>
         </Box>
       </Box>
     );
+  };
+
+  if (mode === "edit") {
+    return renderForm({
+      title: "Edit Project",
+      nameValue: editName,
+      pathValue: editPath,
+      activeField: editField,
+      error: editError,
+      onNameChange: setEditName,
+      onPathChange: setEditPath,
+    });
+  }
+
+  if (mode === "create") {
+    return renderForm({
+      title: "Create New Project",
+      nameValue: createName,
+      pathValue: createPath,
+      activeField: createField,
+      error: createError,
+      onNameChange: setCreateName,
+      onPathChange: setCreatePath,
+    });
   }
 
   // List mode

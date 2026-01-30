@@ -68,6 +68,15 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
     getHosts().then((hosts) => {
       setHostNames(Object.keys(hosts));
     });
+
+    // Pre-fill from Linear issue if dispatched from Tasks view
+    if (state.prefillIssue) {
+      const issue = state.prefillIssue;
+      setSelectedIssue(issue);
+      setName(slugifyIssueName(issue));
+      setLinearQuery(issue.identifier);
+      dispatch({ type: "SET_PREFILL_ISSUE", issue: null });
+    }
   }, []);
 
   // Debounced Linear search

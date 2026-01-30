@@ -241,6 +241,11 @@ export function Tasks({ state, dispatch, onRefresh, onLoadMore, paginationRef }:
           }
         })();
       }
+    } else if (input === "c") {
+      if (currentIssue) {
+        dispatch({ type: "SET_PREFILL_ISSUE", issue: currentIssue });
+        dispatch({ type: "SET_VIEW", view: "create" });
+      }
     } else if (input === "o") {
       if (currentIssue) {
         Bun.spawn(["open", currentIssue.url]);

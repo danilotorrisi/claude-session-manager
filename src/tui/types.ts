@@ -32,6 +32,7 @@ export interface AppState {
   hosts: Record<string, HostConfig>;
   hostStatus: Record<string, HostStatusInfo>;
   tasks: LinearIssue[];
+  prefillIssue: LinearIssue | null;
 }
 
 export type AppAction =
@@ -46,7 +47,8 @@ export type AppAction =
   | { type: "SET_PROJECTS"; projects: Project[] }
   | { type: "SET_HOSTS"; hosts: Record<string, HostConfig> }
   | { type: "SET_HOST_STATUS"; name: string; statusInfo: HostStatusInfo }
-  | { type: "SET_TASKS"; tasks: LinearIssue[] };
+  | { type: "SET_TASKS"; tasks: LinearIssue[] }
+  | { type: "SET_PREFILL_ISSUE"; issue: LinearIssue | null };
 
 export const initialState: AppState = {
   view: "dashboard",
@@ -60,6 +62,7 @@ export const initialState: AppState = {
   hosts: {},
   hostStatus: {},
   tasks: [],
+  prefillIssue: null,
 };
 
 export function appReducer(state: AppState, action: AppAction): AppState {
@@ -94,6 +97,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       };
     case "SET_TASKS":
       return { ...state, tasks: action.tasks };
+    case "SET_PREFILL_ISSUE":
+      return { ...state, prefillIssue: action.issue };
     default:
       return state;
   }
