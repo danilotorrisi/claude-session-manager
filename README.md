@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="banner.png" alt="Claude Session Manager" width="100%" />
+  <img src="header.png" alt="Claude Session Manager" width="100%" />
 </div>
 
 # Claude Session Manager (CSM)
