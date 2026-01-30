@@ -2,6 +2,192 @@ import type { LinearIssue } from "../types";
 
 const LINEAR_API_URL = "https://api.linear.app/graphql";
 
+export interface LinearTeam {
+  id: string;
+  name: string;
+}
+
+export interface LinearLabel {
+  id: string;
+  name: string;
+  color: string;
+}
+
+export async function fetchTeams(apiKey: string): Promise<LinearTeam[]> {
+  const graphqlQuery = {
+    query: `
+      query MyTeams {
+        viewer {
+          teamMemberships {
+            nodes {
+              team {
+                id
+                name
+              }
+            }
+          }
+        }
+      }
+    `,
+  };
+
+  const response = await fetch(LINEAR_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: apiKey,
+    },
+    body: JSON.stringify(graphqlQuery),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    const msg = data?.errors?.[0]?.message || `HTTP ${response.status}`;
+    throw new Error(`Linear API error: ${msg}`);
+  }
+
+  if (data?.errors?.length) {
+    throw new Error(data.errors[0].message || "GraphQL error");
+  }
+
+  const nodes = data?.data?.viewer?.teamMemberships?.nodes;
+
+  if (!Array.isArray(nodes)) {
+    return [];
+  }
+
+  return nodes.map((node: any) => ({
+    id: node.team.id,
+    name: node.team.name,
+  }));
+}
+
+export async function fetchLabels(apiKey: string, teamId: string): Promise<LinearLabel[]> {
+  const graphqlQuery = {
+    query: `
+      query TeamLabels($teamId: ID!) {
+        issueLabels(
+          filter: { team: { id: { eq: $teamId } } }
+          first: 100
+        ) {
+          nodes {
+            id
+            name
+            color
+          }
+        }
+      }
+    `,
+    variables: { teamId },
+  };
+
+  const response = await fetch(LINEAR_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: apiKey,
+    },
+    body: JSON.stringify(graphqlQuery),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    const msg = data?.errors?.[0]?.message || `HTTP ${response.status}`;
+    throw new Error(`Linear API error: ${msg}`);
+  }
+
+  if (data?.errors?.length) {
+    throw new Error(data.errors[0].message || "GraphQL error");
+  }
+
+  const nodes = data?.data?.issueLabels?.nodes;
+
+  if (!Array.isArray(nodes)) {
+    return [];
+  }
+
+  return nodes.map((node: any) => ({
+    id: node.id,
+    name: node.name,
+    color: node.color,
+  }));
+}
+
+export interface CreateIssueInput {
+  title: string;
+  description?: string;
+  teamId: string;
+  priority?: number;
+  stateId?: string;
+  labelIds?: string[];
+}
+
+export interface CreateIssueResult {
+  id: string;
+  identifier: string;
+  url: string;
+}
+
+export async function createIssue(apiKey: string, input: CreateIssueInput): Promise<CreateIssueResult> {
+  const graphqlQuery = {
+    query: `
+      mutation CreateIssue($input: IssueCreateInput!) {
+        issueCreate(input: $input) {
+          success
+          issue {
+            id
+            identifier
+            url
+          }
+        }
+      }
+    `,
+    variables: {
+      input: {
+        title: input.title,
+        ...(input.description && { description: input.description }),
+        teamId: input.teamId,
+        ...(input.priority !== undefined && input.priority > 0 && { priority: input.priority }),
+        ...(input.stateId && { stateId: input.stateId }),
+        ...(input.labelIds && input.labelIds.length > 0 && { labelIds: input.labelIds }),
+      },
+    },
+  };
+
+  const response = await fetch(LINEAR_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: apiKey,
+    },
+    body: JSON.stringify(graphqlQuery),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    const msg = data?.errors?.[0]?.message || `HTTP ${response.status}`;
+    throw new Error(`Linear API error: ${msg}`);
+  }
+
+  if (data?.errors?.length) {
+    throw new Error(data.errors[0].message || "GraphQL error");
+  }
+
+  const result = data?.data?.issueCreate;
+  if (!result?.success || !result?.issue) {
+    throw new Error("Failed to create issue");
+  }
+
+  return {
+    id: result.issue.id,
+    identifier: result.issue.identifier,
+    url: result.issue.url,
+  };
+}
+
 export async function searchIssues(
   query: string,
   apiKey: string

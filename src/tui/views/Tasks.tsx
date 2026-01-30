@@ -6,7 +6,16 @@ import { nextTab } from "../types";
 import type { LinearIssue } from "../../types";
 import type { PaginationState } from "../hooks/useLinearTasks";
 import { colors } from "../theme";
-import { fetchWorkflowStates, updateIssueState, type WorkflowState } from "../../lib/linear";
+import {
+  fetchWorkflowStates,
+  updateIssueState,
+  fetchTeams,
+  fetchLabels,
+  createIssue,
+  type WorkflowState,
+  type LinearTeam,
+  type LinearLabel,
+} from "../../lib/linear";
 import { loadConfig } from "../../lib/config";
 
 interface TasksProps {
@@ -101,6 +110,114 @@ export function Tasks({ state, dispatch, onRefresh, onLoadMore, paginationRef }:
   const [stateSelectLoading, setStateSelectLoading] = useState(false);
   const [stateSelectError, setStateSelectError] = useState<string | null>(null);
 
+  // Create mode state
+  type CreateField = "title" | "description" | "priority" | "labels" | "status";
+  const createFieldOrder: CreateField[] = ["title", "description", "priority", "labels", "status"];
+  const [createMode, setCreateMode] = useState(false);
+  const [createField, setCreateField] = useState<CreateField>("title");
+  const [createTitle, setCreateTitle] = useState("");
+  const [createDescription, setCreateDescription] = useState("");
+  const [createPriority, setCreatePriority] = useState(0);
+  const [createTeams, setCreateTeams] = useState<LinearTeam[]>([]);
+  const [selectedTeam, setSelectedTeam] = useState<LinearTeam | null>(null);
+  const [createLabels, setCreateLabels] = useState<LinearLabel[]>([]);
+  const [selectedLabels, setSelectedLabels] = useState<Set<string>>(new Set());
+  const [createStates, setCreateStates] = useState<WorkflowState[]>([]);
+  const [selectedState, setSelectedState] = useState<WorkflowState | null>(null);
+  const [createSubmitting, setCreateSubmitting] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [labelCursor, setLabelCursor] = useState(0);
+  const [stateCursor, setStateCursor] = useState(0);
+
+  const priorityOptions = [
+    { value: 0, label: "None" },
+    { value: 1, label: "Urgent" },
+    { value: 2, label: "High" },
+    { value: 3, label: "Medium" },
+    { value: 4, label: "Low" },
+  ];
+
+  const openCreateModal = async () => {
+    setCreateMode(true);
+    setCreateField("title");
+    setCreateTitle("");
+    setCreateDescription("");
+    setCreatePriority(0);
+    setCreateLabels([]);
+    setSelectedLabels(new Set());
+    setCreateStates([]);
+    setSelectedState(null);
+    setCreateError(null);
+    setCreateSubmitting(false);
+    setCreateLoading(true);
+    setLabelCursor(0);
+    setStateCursor(0);
+
+    try {
+      const config = await loadConfig();
+      if (!config.linearApiKey) {
+        setCreateError("No Linear API key configured");
+        setCreateLoading(false);
+        return;
+      }
+      const teams = await fetchTeams(config.linearApiKey);
+      setCreateTeams(teams);
+      if (teams.length > 0) {
+        const team = teams[0];
+        setSelectedTeam(team);
+        const [labels, states] = await Promise.all([
+          fetchLabels(config.linearApiKey, team.id),
+          fetchWorkflowStates(config.linearApiKey, team.id),
+        ]);
+        setCreateLabels(labels);
+        setCreateStates(states);
+        // Default to first "unstarted" state
+        const defaultState = states.find((s) => s.type === "unstarted") || states[0];
+        if (defaultState) setSelectedState(defaultState);
+      }
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Failed to load data");
+    } finally {
+      setCreateLoading(false);
+    }
+  };
+
+  const submitCreateIssue = async () => {
+    if (!createTitle.trim()) {
+      setCreateError("Title is required");
+      return;
+    }
+    if (!selectedTeam) {
+      setCreateError("No team available");
+      return;
+    }
+    setCreateSubmitting(true);
+    setCreateError(null);
+    try {
+      const config = await loadConfig();
+      if (!config.linearApiKey) {
+        setCreateError("No Linear API key configured");
+        return;
+      }
+      const result = await createIssue(config.linearApiKey, {
+        title: createTitle.trim(),
+        description: createDescription.trim() || undefined,
+        teamId: selectedTeam.id,
+        priority: createPriority,
+        stateId: selectedState?.id,
+        labelIds: selectedLabels.size > 0 ? Array.from(selectedLabels) : undefined,
+      });
+      dispatch({ type: "SET_MESSAGE", message: `Created ${result.identifier}` });
+      onRefresh();
+      setCreateMode(false);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Failed to create issue");
+    } finally {
+      setCreateSubmitting(false);
+    }
+  };
+
   const filter = allFilters[filterIndex];
   const statusFiltered = useMemo(() => filterIssues(state.tasks, filter), [state.tasks, filter]);
   const filtered = useMemo(() => {
@@ -133,6 +250,96 @@ export function Tasks({ state, dispatch, onRefresh, onLoadMore, paginationRef }:
   const currentItem = flatItems[selectedIndex];
   const currentIssue = currentItem?.type === "issue" ? currentItem.issue : undefined;
   const isOnLoadMore = currentItem?.type === "load-more";
+
+  // Create modal input — navigation and field controls
+  useInput((input, key) => {
+    if (key.escape) {
+      setCreateMode(false);
+      return;
+    }
+
+    // Ctrl+S to submit from any field
+    if (input === "s" && key.ctrl) {
+      submitCreateIssue();
+      return;
+    }
+
+    // Tab / Shift+Tab to navigate fields
+    if (key.tab) {
+      const idx = createFieldOrder.indexOf(createField);
+      if (key.shift) {
+        setCreateField(createFieldOrder[Math.max(0, idx - 1)]);
+      } else {
+        setCreateField(createFieldOrder[Math.min(createFieldOrder.length - 1, idx + 1)]);
+      }
+      return;
+    }
+
+    // Field-specific controls
+    if (createField === "priority") {
+      if (key.leftArrow) {
+        setCreatePriority((p) => (p <= 0 ? 4 : p - 1));
+      } else if (key.rightArrow) {
+        setCreatePriority((p) => (p >= 4 ? 0 : p + 1));
+      }
+    } else if (createField === "labels") {
+      if (key.upArrow) {
+        setLabelCursor((i) => Math.max(0, i - 1));
+      } else if (key.downArrow) {
+        setLabelCursor((i) => Math.min(createLabels.length - 1, i + 1));
+      } else if (input === " " && createLabels.length > 0) {
+        const label = createLabels[labelCursor];
+        if (label) {
+          setSelectedLabels((prev) => {
+            const next = new Set(prev);
+            if (next.has(label.id)) {
+              next.delete(label.id);
+            } else {
+              next.add(label.id);
+            }
+            return next;
+          });
+        }
+      }
+    } else if (createField === "status") {
+      if (key.upArrow) {
+        setStateCursor((i) => Math.max(0, i - 1));
+      } else if (key.downArrow) {
+        setStateCursor((i) => Math.min(createStates.length - 1, i + 1));
+      } else if (key.return && createStates.length > 0) {
+        setSelectedState(createStates[stateCursor]);
+      }
+    }
+
+    // Enter on last field submits
+    if (key.return && createField === "status") {
+      if (createStates.length > 0) {
+        setSelectedState(createStates[stateCursor]);
+      }
+      submitCreateIssue();
+    }
+  }, { isActive: createMode && !createSubmitting && !createLoading && createField !== "title" && createField !== "description" });
+
+  // Create modal text input — for title and description fields
+  // (TextInput handles its own input, we only handle Esc/Tab/Ctrl+S here)
+  useInput((input, key) => {
+    if (key.escape) {
+      setCreateMode(false);
+      return;
+    }
+    if (input === "s" && key.ctrl) {
+      submitCreateIssue();
+      return;
+    }
+    if (key.tab) {
+      const idx = createFieldOrder.indexOf(createField);
+      if (key.shift) {
+        setCreateField(createFieldOrder[Math.max(0, idx - 1)]);
+      } else {
+        setCreateField(createFieldOrder[Math.min(createFieldOrder.length - 1, idx + 1)]);
+      }
+    }
+  }, { isActive: createMode && !createSubmitting && !createLoading && (createField === "title" || createField === "description") });
 
   // State selector input — active when state select modal is open
   useInput((_input, key) => {
@@ -169,7 +376,7 @@ export function Tasks({ state, dispatch, onRefresh, onLoadMore, paginationRef }:
       setWorkflowStates([]);
       setStateSelectError(null);
     }
-  }, { isActive: stateSelectMode && !stateSelectLoading });
+  }, { isActive: stateSelectMode && !stateSelectLoading && !createMode });
 
   // Detail modal input — only active when modal is open
   useInput((input, key) => {
@@ -178,7 +385,7 @@ export function Tasks({ state, dispatch, onRefresh, onLoadMore, paginationRef }:
     } else if (input === "o" && currentIssue) {
       Bun.spawn(["open", currentIssue.url]);
     }
-  }, { isActive: showPreview && !searchMode && !stateSelectMode });
+  }, { isActive: showPreview && !searchMode && !stateSelectMode && !createMode });
 
   // Search mode input — Esc to cancel, Enter to confirm
   useInput((_input, key) => {
@@ -190,7 +397,7 @@ export function Tasks({ state, dispatch, onRefresh, onLoadMore, paginationRef }:
       setSearchMode(false);
       setSelectedIndex(0);
     }
-  }, { isActive: searchMode });
+  }, { isActive: searchMode && !createMode });
 
   // List input — only active when modal and search are closed
   useInput((input, key) => {
@@ -252,8 +459,10 @@ export function Tasks({ state, dispatch, onRefresh, onLoadMore, paginationRef }:
       }
     } else if (input === "r") {
       onRefresh();
+    } else if (input === "n") {
+      openCreateModal();
     }
-  }, { isActive: !showPreview && !searchMode && !stateSelectMode });
+  }, { isActive: !showPreview && !searchMode && !stateSelectMode && !createMode });
 
   // Clamp selectedIndex if list shrunk
   if (selectedIndex >= flatItems.length && flatItems.length > 0) {
@@ -306,6 +515,205 @@ export function Tasks({ state, dispatch, onRefresh, onLoadMore, paginationRef }:
         )}
         <Box paddingX={1}>
           <Text color={colors.muted}>{noMatchMsg}</Text>
+        </Box>
+      </Box>
+    );
+  }
+
+  // Create task modal
+  if (createMode) {
+    return (
+      <Box flexDirection="column" paddingX={1} paddingY={1}>
+        <Box marginBottom={1} paddingX={1}>
+          <Text backgroundColor={colors.accent} color={colors.textBright} bold>
+            {" ◆ New Task "}
+          </Text>
+        </Box>
+
+        {createLoading ? (
+          <Box paddingX={2}>
+            <Text color={colors.muted}>Loading teams and labels...</Text>
+          </Box>
+        ) : createError && !createTitle ? (
+          <Box paddingX={2}>
+            <Text color={colors.danger}>{createError}</Text>
+            <Text color={colors.muted}>  Press [Esc] to close</Text>
+          </Box>
+        ) : (
+          <Box flexDirection="column" marginX={1} gap={0}>
+            {/* Title */}
+            <Box
+              flexDirection="column"
+              borderStyle="round"
+              borderColor={createField === "title" ? colors.primary : colors.cardBorder}
+              paddingX={2}
+              paddingY={0}
+            >
+              <Text color={createField === "title" ? colors.textBright : colors.muted} bold>
+                Title {!createTitle.trim() && createField !== "title" ? "(required)" : ""}
+              </Text>
+              {createField === "title" ? (
+                <TextInput
+                  value={createTitle}
+                  onChange={setCreateTitle}
+                  placeholder="Issue title..."
+                />
+              ) : (
+                <Text color={createTitle ? colors.text : colors.muted}>
+                  {createTitle || "—"}
+                </Text>
+              )}
+            </Box>
+
+            {/* Description */}
+            <Box
+              flexDirection="column"
+              borderStyle="round"
+              borderColor={createField === "description" ? colors.primary : colors.cardBorder}
+              paddingX={2}
+              paddingY={0}
+            >
+              <Text color={createField === "description" ? colors.textBright : colors.muted} bold>
+                Description
+              </Text>
+              {createField === "description" ? (
+                <TextInput
+                  value={createDescription}
+                  onChange={setCreateDescription}
+                  placeholder="Optional description..."
+                />
+              ) : (
+                <Text color={createDescription ? colors.text : colors.muted}>
+                  {createDescription || "—"}
+                </Text>
+              )}
+            </Box>
+
+            {/* Priority */}
+            <Box
+              flexDirection="column"
+              borderStyle="round"
+              borderColor={createField === "priority" ? colors.primary : colors.cardBorder}
+              paddingX={2}
+              paddingY={0}
+            >
+              <Text color={createField === "priority" ? colors.textBright : colors.muted} bold>
+                Priority {createField === "priority" ? "(←→ to change)" : ""}
+              </Text>
+              <Box>
+                {priorityOptions.map((opt) => (
+                  <Text
+                    key={opt.value}
+                    color={createPriority === opt.value ? colors.textBright : colors.muted}
+                    bold={createPriority === opt.value}
+                  >
+                    {createPriority === opt.value ? ` [${opt.label}] ` : `  ${opt.label}  `}
+                  </Text>
+                ))}
+              </Box>
+            </Box>
+
+            {/* Labels */}
+            <Box
+              flexDirection="column"
+              borderStyle="round"
+              borderColor={createField === "labels" ? colors.primary : colors.cardBorder}
+              paddingX={2}
+              paddingY={0}
+            >
+              <Text color={createField === "labels" ? colors.textBright : colors.muted} bold>
+                Labels {createField === "labels" ? "(↑↓ navigate, Space toggle)" : ""}
+              </Text>
+              {createLabels.length === 0 ? (
+                <Text color={colors.muted}>No labels available</Text>
+              ) : createField === "labels" ? (
+                <Box flexDirection="column">
+                  {createLabels.map((label, idx) => {
+                    const checked = selectedLabels.has(label.id);
+                    const isCursor = idx === labelCursor;
+                    return (
+                      <Text
+                        key={label.id}
+                        color={isCursor ? colors.textBright : colors.text}
+                        backgroundColor={isCursor ? colors.primary : undefined}
+                        bold={isCursor}
+                      >
+                        {isCursor ? " › " : "   "}
+                        {checked ? "☑ " : "☐ "}
+                        {label.name}
+                      </Text>
+                    );
+                  })}
+                </Box>
+              ) : (
+                <Text color={selectedLabels.size > 0 ? colors.text : colors.muted}>
+                  {selectedLabels.size > 0
+                    ? createLabels
+                        .filter((l) => selectedLabels.has(l.id))
+                        .map((l) => l.name)
+                        .join(", ")
+                    : "—"}
+                </Text>
+              )}
+            </Box>
+
+            {/* Status */}
+            <Box
+              flexDirection="column"
+              borderStyle="round"
+              borderColor={createField === "status" ? colors.primary : colors.cardBorder}
+              paddingX={2}
+              paddingY={0}
+            >
+              <Text color={createField === "status" ? colors.textBright : colors.muted} bold>
+                Status {createField === "status" ? "(↑↓ navigate, Enter select+submit)" : ""}
+              </Text>
+              {createStates.length === 0 ? (
+                <Text color={colors.muted}>No states available</Text>
+              ) : createField === "status" ? (
+                <Box flexDirection="column">
+                  {createStates.map((ws, idx) => {
+                    const isActive = ws.id === selectedState?.id;
+                    const isCursor = idx === stateCursor;
+                    return (
+                      <Text
+                        key={ws.id}
+                        color={isCursor ? colors.textBright : colors.text}
+                        backgroundColor={isCursor ? colors.primary : undefined}
+                        bold={isCursor}
+                      >
+                        {isCursor ? " › " : "   "}
+                        {isActive ? "● " : "○ "}
+                        {ws.name}
+                      </Text>
+                    );
+                  })}
+                </Box>
+              ) : (
+                <Text color={selectedState ? colors.text : colors.muted}>
+                  {selectedState?.name || "—"}
+                </Text>
+              )}
+            </Box>
+
+            {createError && (
+              <Box paddingX={1} marginTop={0}>
+                <Text color={colors.danger}>{createError}</Text>
+              </Box>
+            )}
+
+            {createSubmitting && (
+              <Box paddingX={1} marginTop={0}>
+                <Text color={colors.muted}>Creating issue...</Text>
+              </Box>
+            )}
+          </Box>
+        )}
+
+        <Box marginTop={1} paddingX={1}>
+          <Text color={colors.muted}>
+            [Tab] next · [Shift+Tab] prev · [Ctrl+S] submit · [Esc] cancel
+          </Text>
         </Box>
       </Box>
     );
