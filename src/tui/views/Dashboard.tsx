@@ -40,6 +40,14 @@ interface FeedbackNotification {
   timestamp: string;
 }
 
+function parseNotification(data: Record<string, unknown>): FeedbackNotification {
+  return {
+    reportUrl: (data.reportUrl || data.url || "") as string,
+    sessionName: (data.sessionName || "") as string,
+    timestamp: (data.timestamp || "") as string,
+  };
+}
+
 function pollNotifications(): FeedbackNotification[] {
   const dir = "/tmp/csm-notifications";
   try {
@@ -48,7 +56,7 @@ function pollNotifications(): FeedbackNotification[] {
     for (const file of files) {
       try {
         const data = JSON.parse(readFileSync(`${dir}/${file}`, "utf-8"));
-        notifications.push(data);
+        notifications.push(parseNotification(data));
         unlinkSync(`${dir}/${file}`);
       } catch {
         // skip malformed notifications
@@ -464,7 +472,25 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       } else {
         dispatch({ type: "SET_MESSAGE", message: `No worktree path for "${session.name}"` });
       }
+    } else if (input === "p" && feedbackNotification?.reportUrl) {
+      const url = feedbackNotification.reportUrl;
+      cpExec(`open "${url}"`, (err) => {
+        if (err) dispatch({ type: "SET_ERROR", error: `Failed to open report: ${url}` });
+      });
+      setFeedbackNotification(null);
+    } else if (input === "p" && previewSession?.feedbackReports?.length) {
+      const latest = previewSession.feedbackReports[previewSession.feedbackReports.length - 1];
+      const url = latest.url;
+      if (!url || (!url.startsWith("http") && !url.startsWith("/"))) {
+        dispatch({ type: "SET_ERROR", error: `Invalid report URL: ${url}` });
+      } else {
+        cpExec(`open "${url}"`, (err) => {
+          if (err) dispatch({ type: "SET_ERROR", error: `Failed to open report: ${url}` });
+        });
+        dispatch({ type: "SET_MESSAGE", message: "Opening feedback report…" });
+      }
     } else if (_key.escape) {
+      setFeedbackNotification(null);
       setPreviewSession(null);
       setConfirmKill(null);
       setMergeState({ phase: "idle" });
@@ -549,7 +575,7 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
             <Text color={colors.separator}>│</Text>
           </Box>
 
-          {/* Right side: git changes */}
+          {/* Right side: git changes + feedback reports */}
           <Box flexDirection="column" width="50%">
             {loadingGitDetails ? (
               <Text color={colors.muted} dimColor>Loading git changes…</Text>
@@ -565,6 +591,30 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
               <Box flexDirection="column">
                 <Text color={colors.muted} bold>Git Changes</Text>
                 <Text color={colors.muted} dimColor>No changes</Text>
+              </Box>
+            )}
+            {previewSession.feedbackReports && previewSession.feedbackReports.length > 0 && (
+              <Box flexDirection="column" marginTop={1}>
+                <Box gap={1}>
+                  <Text color={colors.success} bold>
+                    Feedback Reports ({previewSession.feedbackReports.length})
+                  </Text>
+                  <Text color={colors.muted} dimColor>[p] open latest</Text>
+                </Box>
+                {previewSession.feedbackReports.slice(-3).reverse().map((report, i) => {
+                  const date = new Date(report.timestamp.replace(/-/g, (m, offset) => offset <= 9 ? m : offset <= 12 ? ":" : "."));
+                  const timeStr = isNaN(date.getTime())
+                    ? report.timestamp.slice(0, 19)
+                    : date.toLocaleString();
+                  return (
+                    <Box key={i} gap={1}>
+                      <Text color={i === 0 ? colors.success : colors.muted}>
+                        {i === 0 ? "▸" : " "}
+                      </Text>
+                      <Text color={colors.text}>📋 {timeStr}</Text>
+                    </Box>
+                  );
+                })}
               </Box>
             )}
           </Box>
@@ -593,8 +643,12 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
           <Text color={colors.text}>
             Feedback report ready for <Text bold>{feedbackNotification.sessionName}</Text>
             {" — "}
-            <Text color={colors.accent}>{feedbackNotification.reportUrl}</Text>
           </Text>
+          <Text backgroundColor={colors.primary} color={colors.textBright} bold>{" p "}</Text>
+          <Text color={colors.muted}> open</Text>
+          <Text color={colors.separator}> · </Text>
+          <Text backgroundColor={colors.primary} color={colors.textBright} bold>{" esc "}</Text>
+          <Text color={colors.muted}> dismiss</Text>
         </Box>
       )}
       {mergeState.phase === "generating" && (

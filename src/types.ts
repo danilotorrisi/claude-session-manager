@@ -22,6 +22,14 @@ export interface Project {
   repoPath: string;
 }
 
+export interface R2Config {
+  accountId: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  bucketName: string;
+  publicUrl?: string;
+}
+
 export interface Config {
   defaultRepo?: string;
   worktreeBase: string;
@@ -29,6 +37,8 @@ export interface Config {
   linearApiKey?: string;
   projects?: Project[];
   projectsBase?: string;
+  r2?: R2Config;
+  feedbackEnabled?: boolean;
 }
 
 export interface GitStats {

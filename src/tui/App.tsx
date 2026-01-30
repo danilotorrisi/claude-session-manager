@@ -8,10 +8,12 @@ import { SessionDetail } from "./views/SessionDetail";
 import { Projects } from "./views/Projects";
 import { Tasks } from "./views/Tasks";
 import { Hosts } from "./views/Hosts";
+import { Config } from "./views/Config";
 import { useSessions } from "./hooks/useSessions";
 import { useProjects } from "./hooks/useProjects";
 import { useHosts } from "./hooks/useHosts";
 import { useLinearTasks } from "./hooks/useLinearTasks";
+import { useReportPoller } from "./hooks/useReportPoller";
 import { initialState, appReducer } from "./types";
 import type { AppState } from "./types";
 import { colors } from "./theme";
@@ -36,6 +38,7 @@ export function App({ restoredState }: { restoredState?: AppState }) {
   const { reload: reloadProjects } = useProjects(dispatch);
   const { reload: reloadHosts, checkHost, refreshStatus: refreshHostStatus } = useHosts(dispatch);
   const { refresh: refreshTasks, loadMore: loadMoreTasks, paginationRef } = useLinearTasks(dispatch);
+  useReportPoller(state.sessions);
   const { stdout } = useStdout();
 
   const handleRefresh = useCallback(async () => {
@@ -48,6 +51,7 @@ export function App({ restoredState }: { restoredState?: AppState }) {
       { key: "projects" as const, label: "Projects" },
       { key: "hosts" as const, label: "Hosts" },
       { key: "tasks" as const, label: "Tasks" },
+      { key: "config" as const, label: "Config" },
     ];
 
     return (
@@ -96,13 +100,18 @@ export function App({ restoredState }: { restoredState?: AppState }) {
               onCheckHost={checkHost}
               onRefreshStatus={refreshHostStatus}
             />
-          ) : (
+          ) : state.activeTab === "tasks" ? (
             <Tasks
               state={state}
               dispatch={dispatch}
               onRefresh={refreshTasks}
               onLoadMore={loadMoreTasks}
               paginationRef={paginationRef}
+            />
+          ) : (
+            <Config
+              state={state}
+              dispatch={dispatch}
             />
           )}
         </>

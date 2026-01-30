@@ -1,6 +1,6 @@
 import { homedir } from "os";
 import { join } from "path";
-import type { Config, HostConfig, Project } from "../types";
+import type { Config, HostConfig, Project, R2Config } from "../types";
 
 export function expandTilde(filepath: string): string {
   if (filepath === "~") return homedir();
@@ -216,6 +216,28 @@ export async function saveArchivedSession(session: ArchivedSession): Promise<voi
   archived.push(session);
   await ensureConfigDir();
   await Bun.write(ARCHIVED_FILE, JSON.stringify(archived, null, 2));
+}
+
+export async function getR2Config(): Promise<R2Config | undefined> {
+  const config = await loadConfig();
+  return config.r2;
+}
+
+export async function saveR2Config(r2Config: R2Config): Promise<void> {
+  const config = await loadConfig();
+  config.r2 = r2Config;
+  await saveConfig(config);
+}
+
+export async function isFeedbackEnabled(): Promise<boolean> {
+  const config = await loadConfig();
+  return config.feedbackEnabled ?? false;
+}
+
+export async function setFeedbackEnabled(enabled: boolean): Promise<void> {
+  const config = await loadConfig();
+  config.feedbackEnabled = enabled;
+  await saveConfig(config);
 }
 
 export { CONFIG_DIR, CONFIG_FILE };

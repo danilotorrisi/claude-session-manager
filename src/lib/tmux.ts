@@ -2,6 +2,7 @@ import type { Session, CommandResult, LinearIssue, GitStats, GitFileChange } fro
 import { exec } from "./ssh";
 import { readClaudeStates, readRemoteClaudeStates, getLastAssistantMessage } from "./claude-state";
 import { getWorktreePath, loadSessionMetadata } from "./worktree";
+import { isFeedbackEnabled } from "./config";
 import { realpathSync } from "fs";
 
 const SESSION_PREFIX = "csm-";
@@ -293,7 +294,10 @@ export async function writeClaudeContext(
     );
   }
 
-  lines.push("", FEEDBACK_PROTOCOL);
+  const feedbackOn = await isFeedbackEnabled();
+  if (feedbackOn) {
+    lines.push("", FEEDBACK_PROTOCOL);
+  }
 
   const content = lines.join("\n");
   const escaped = content.replace(/'/g, "'\\''");

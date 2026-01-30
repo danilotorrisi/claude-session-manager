@@ -56,6 +56,14 @@ const keyHints: Record<string, KeyHint[]> = {
     { key: "tab", label: "switch tab" },
     { key: "q", label: "quit" },
   ],
+  config: [
+    { key: "↑↓", label: "navigate" },
+    { key: "enter", label: "edit/toggle" },
+    { key: "s", label: "save" },
+    { key: "t", label: "test R2" },
+    { key: "tab", label: "switch tab" },
+    { key: "q", label: "quit" },
+  ],
   create: [
     { key: "enter", label: "submit" },
     { key: "tab", label: "next field" },
@@ -78,6 +86,8 @@ export function Footer({ view, activeTab }: FooterProps) {
     hintsKey = "hosts";
   } else if (view === "dashboard" && activeTab === "tasks") {
     hintsKey = "tasks";
+  } else if (view === "dashboard" && activeTab === "config") {
+    hintsKey = "config";
   } else {
     hintsKey = view;
   }

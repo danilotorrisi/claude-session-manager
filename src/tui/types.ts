@@ -1,6 +1,6 @@
 import type { Session, Project, LinearIssue, HostConfig } from "../types";
 
-export type Tab = "sessions" | "projects" | "hosts" | "tasks";
+export type Tab = "sessions" | "projects" | "hosts" | "tasks" | "config";
 export type View = "dashboard" | "create" | "detail" | "projects";
 
 export interface HostStatusInfo {
@@ -13,7 +13,7 @@ export interface HostStatusInfo {
   lastChecked?: number;
 }
 
-const tabOrder: Tab[] = ["sessions", "projects", "hosts", "tasks"];
+const tabOrder: Tab[] = ["sessions", "projects", "hosts", "tasks", "config"];
 
 export function nextTab(current: Tab): Tab {
   const idx = tabOrder.indexOf(current);

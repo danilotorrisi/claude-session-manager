@@ -1,7 +1,7 @@
 import { readFileSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
-import type { CommandResult } from "../types";
+import type { CommandResult, R2Config } from "../types";
 import { getHost } from "./config";
 
 /** SSH ControlMaster args for connection multiplexing. */
@@ -454,6 +454,42 @@ async function restartClaudeInSessions(hostName: string): Promise<number> {
   }
 
   return restarted;
+}
+
+export async function installR2Credentials(
+  hostName: string,
+  r2Config: R2Config
+): Promise<CommandResult> {
+  const hostConfig = await getHost(hostName);
+  if (!hostConfig) {
+    return {
+      success: false,
+      stdout: "",
+      stderr: `Host '${hostName}' not found in config`,
+      exitCode: 1,
+    };
+  }
+
+  const content = JSON.stringify(r2Config, null, 2);
+  return writeRemoteFile(hostConfig.host, "~/.config/csm/.csm-r2.json", content);
+}
+
+export async function installR2CredentialsLocal(
+  r2Config: R2Config
+): Promise<CommandResult> {
+  const configDir = join(homedir(), ".config", "csm");
+  const filePath = join(configDir, ".csm-r2.json");
+  const content = JSON.stringify(r2Config, null, 2);
+
+  try {
+    const fs = await import("fs/promises");
+    await fs.mkdir(configDir, { recursive: true });
+    await fs.writeFile(filePath, content, "utf-8");
+    return { success: true, stdout: "R2 credentials saved locally", stderr: "", exitCode: 0 };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return { success: false, stdout: "", stderr: message, exitCode: 1 };
+  }
 }
 
 export async function attachRemote(hostName: string, sessionName: string): Promise<void> {
