@@ -170,6 +170,16 @@ export async function deleteHost(name: string): Promise<void> {
   await saveConfig(config);
 }
 
+export async function renameHost(oldName: string, newName: string): Promise<void> {
+  const config = await loadConfig();
+  const hostConfig = config.hosts[oldName];
+  if (hostConfig) {
+    delete config.hosts[oldName];
+    config.hosts[newName] = hostConfig;
+    await saveConfig(config);
+  }
+}
+
 export async function renameProject(oldName: string, newName: string): Promise<void> {
   const config = await loadConfig();
   const projects = config.projects || [];

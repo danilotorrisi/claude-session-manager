@@ -4,7 +4,7 @@ import TextInput from "ink-text-input";
 import type { AppState, AppAction } from "../types";
 import { nextTab } from "../types";
 import type { HostConfig } from "../../types";
-import { addHost, updateHost, deleteHost } from "../../lib/config";
+import { addHost, updateHost, deleteHost, renameHost } from "../../lib/config";
 import { installHooks } from "../../lib/ssh";
 import { LOCAL_HOST_KEY } from "../hooks/useHosts";
 import { colors } from "../theme";
@@ -64,7 +64,7 @@ export function Hosts({ state, dispatch, onReload, onCheckHost, onRefreshStatus 
       setFormError("SSH host is required");
       return;
     }
-    if (state.hosts[formName.trim()] && !editingName) {
+    if (state.hosts[formName.trim()] && formName.trim() !== editingName) {
       setFormError("Host name already exists");
       return;
     }
@@ -73,7 +73,7 @@ export function Hosts({ state, dispatch, onReload, onCheckHost, onRefreshStatus 
 
     if (editingName) {
       if (editingName !== formName.trim()) {
-        await deleteHost(editingName);
+        await renameHost(editingName, formName.trim());
       }
       await updateHost(formName.trim(), config);
       dispatch({ type: "SET_MESSAGE", message: `Host "${formName.trim()}" updated` });
@@ -149,7 +149,7 @@ export function Hosts({ state, dispatch, onReload, onCheckHost, onRefreshStatus 
       setFormName(selected.name);
       setFormHost(config.host);
       setFormRepo(config.defaultRepo || "");
-      setFormField("host");
+      setFormField("name");
       setFormError(null);
       setMode("edit");
     } else if (input === "d" && selected && !isLocalSelected) {
@@ -183,13 +183,13 @@ export function Hosts({ state, dispatch, onReload, onCheckHost, onRefreshStatus 
       resetForm();
       setMode("list");
     } else if (key.tab) {
-      const fields: FormField[] = mode === "edit" ? ["host", "repo"] : ["name", "host", "repo"];
+      const fields: FormField[] = ["name", "host", "repo"];
       const idx = fields.indexOf(formField);
       setFormField(fields[(idx + 1) % fields.length]);
     } else if (key.return && formField === "repo") {
       handleCreate();
     } else if (key.return) {
-      const fields: FormField[] = mode === "edit" ? ["host", "repo"] : ["name", "host", "repo"];
+      const fields: FormField[] = ["name", "host", "repo"];
       const idx = fields.indexOf(formField);
       if (idx < fields.length - 1) {
         setFormField(fields[idx + 1]);
@@ -247,12 +247,7 @@ export function Hosts({ state, dispatch, onReload, onCheckHost, onRefreshStatus 
           </Box>
         )}
 
-        {mode === "create" && renderField("name", "Name", formName, setFormName, "dev-server")}
-        {mode === "edit" && (
-          <Box paddingX={1} marginBottom={1}>
-            <Text color={colors.muted}>Editing: {editingName}</Text>
-          </Box>
-        )}
+        {renderField("name", "Name", formName, setFormName, "dev-server")}
         {renderField("host", "SSH Host", formHost, setFormHost, "user@hostname")}
         {renderField("repo", "Default Repo", formRepo, setFormRepo, "/path/to/repo (optional)")}
 
