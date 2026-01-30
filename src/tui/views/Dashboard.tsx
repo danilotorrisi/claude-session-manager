@@ -511,6 +511,7 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
         sessions={orderedSessions}
         selectedIndex={selectedIndex}
         inputActive={!replyMode && !isEditing}
+        loading={state.loading}
         onSelect={handleSelect}
         onActivate={handleAttach}
         onPreview={handlePreview}

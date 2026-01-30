@@ -1,4 +1,4 @@
-import React, { useReducer, useCallback } from "react";
+import React, { useReducer, useCallback, useEffect, useRef } from "react";
 import { Box, Text, useStdout } from "ink";
 import { Header } from "./components/Header";
 import { Footer } from "./components/Footer";
@@ -13,10 +13,25 @@ import { useProjects } from "./hooks/useProjects";
 import { useHosts } from "./hooks/useHosts";
 import { useLinearTasks } from "./hooks/useLinearTasks";
 import { initialState, appReducer } from "./types";
+import type { AppState } from "./types";
 import { colors } from "./theme";
 
-export function App() {
-  const [state, dispatch] = useReducer(appReducer, initialState);
+/** Module-level cache so the TUI can restore state after tmux detach. */
+let cachedState: AppState | null = null;
+export function getCachedState(): AppState | null { return cachedState; }
+
+export function App({ restoredState }: { restoredState?: AppState }) {
+  const startState = restoredState
+    ? { ...restoredState, view: "dashboard" as const, error: null, message: null }
+    : initialState;
+  const [state, dispatch] = useReducer(appReducer, startState);
+
+  // Keep the cache in sync so it's always up-to-date before unmount.
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  useEffect(() => {
+    return () => { cachedState = stateRef.current; };
+  }, []);
   const { refresh } = useSessions(dispatch);
   const { reload: reloadProjects } = useProjects(dispatch);
   const { reload: reloadHosts, checkHost, refreshStatus: refreshHostStatus } = useHosts(dispatch);

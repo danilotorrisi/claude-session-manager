@@ -7,6 +7,7 @@ interface SessionListProps {
   sessions: Session[];
   selectedIndex: number;
   inputActive?: boolean;
+  loading?: boolean;
   onSelect: (index: number) => void;
   onActivate: (session: Session) => void;
   onPreview?: (session: Session) => void;
@@ -18,6 +19,7 @@ export function SessionList({
   sessions,
   selectedIndex,
   inputActive = true,
+  loading = false,
   onSelect,
   onActivate,
   onPreview,
@@ -41,10 +43,16 @@ export function SessionList({
   if (sessions.length === 0) {
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1}>
-        <Text color={colors.muted}>No active sessions</Text>
-        <Text color={colors.muted} dimColor>
-          Press [c] to create a new session
-        </Text>
+        {loading ? (
+          <Text color={colors.muted}>Loading sessions…</Text>
+        ) : (
+          <>
+            <Text color={colors.muted}>No active sessions</Text>
+            <Text color={colors.muted} dimColor>
+              Press [c] to create a new session
+            </Text>
+          </>
+        )}
       </Box>
     );
   }

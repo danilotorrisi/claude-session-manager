@@ -1,6 +1,6 @@
 import React from "react";
 import { render } from "ink";
-import { App } from "./App";
+import { App, getCachedState } from "./App";
 import { getWorktreePath } from "../lib/worktree";
 import { getHost } from "../lib/config";
 import { realpathSync } from "fs";
@@ -8,7 +8,8 @@ import { realpathSync } from "fs";
 let instance: ReturnType<typeof render> | null = null;
 
 export function startTui() {
-  instance = render(<App />);
+  const cached = getCachedState();
+  instance = render(<App restoredState={cached ?? undefined} />);
 }
 
 export async function exitTuiAndAttach(command: string, args: string[]): Promise<void> {
