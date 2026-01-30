@@ -115,6 +115,40 @@ export async function fetchLabels(apiKey: string, teamId: string): Promise<Linea
   }));
 }
 
+export async function fetchViewerId(apiKey: string): Promise<string> {
+  const graphqlQuery = {
+    query: `
+      query Me {
+        viewer {
+          id
+        }
+      }
+    `,
+  };
+
+  const response = await fetch(LINEAR_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: apiKey,
+    },
+    body: JSON.stringify(graphqlQuery),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    const msg = data?.errors?.[0]?.message || `HTTP ${response.status}`;
+    throw new Error(`Linear API error: ${msg}`);
+  }
+
+  const id = data?.data?.viewer?.id;
+  if (!id) {
+    throw new Error("Could not fetch viewer ID");
+  }
+  return id;
+}
+
 export interface CreateIssueInput {
   title: string;
   description?: string;
@@ -122,6 +156,7 @@ export interface CreateIssueInput {
   priority?: number;
   stateId?: string;
   labelIds?: string[];
+  assigneeId?: string;
 }
 
 export interface CreateIssueResult {
@@ -152,6 +187,7 @@ export async function createIssue(apiKey: string, input: CreateIssueInput): Prom
         ...(input.priority !== undefined && input.priority > 0 && { priority: input.priority }),
         ...(input.stateId && { stateId: input.stateId }),
         ...(input.labelIds && input.labelIds.length > 0 && { labelIds: input.labelIds }),
+        ...(input.assigneeId && { assigneeId: input.assigneeId }),
       },
     },
   };

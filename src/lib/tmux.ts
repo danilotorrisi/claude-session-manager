@@ -2,7 +2,7 @@ import type { Session, CommandResult, LinearIssue, GitStats, GitFileChange } fro
 import { exec } from "./ssh";
 import { readClaudeStates, readRemoteClaudeStates, getLastAssistantMessage } from "./claude-state";
 import { getWorktreePath, loadSessionMetadata } from "./worktree";
-import { isFeedbackEnabled } from "./config";
+import { isFeedbackEnabled, loadConfig } from "./config";
 import { realpathSync } from "fs";
 
 const SESSION_PREFIX = "csm-";
@@ -304,6 +304,158 @@ export async function writeClaudeContext(
   await exec(`echo '${escaped}' > "${workingDir}/CLAUDE.md"`, hostName);
 }
 
+const DEFAULT_ALLOWED_TOOLS = [
+  "Bash(bun *)",
+  "Bash(npm *)",
+  "Bash(npx *)",
+  "Bash(pnpm *)",
+  "Bash(yarn *)",
+  "Bash(node *)",
+  "Bash(git *)",
+  "Bash(gh *)",
+  "Bash(ls *)",
+  "Bash(cat *)",
+  "Bash(head *)",
+  "Bash(tail *)",
+  "Bash(find *)",
+  "Bash(grep *)",
+  "Bash(rg *)",
+  "Bash(ag *)",
+  "Bash(wc *)",
+  "Bash(sort *)",
+  "Bash(uniq *)",
+  "Bash(diff *)",
+  "Bash(echo *)",
+  "Bash(printf *)",
+  "Bash(mkdir *)",
+  "Bash(cp *)",
+  "Bash(mv *)",
+  "Bash(touch *)",
+  "Bash(chmod *)",
+  "Bash(pwd)",
+  "Bash(which *)",
+  "Bash(whoami)",
+  "Bash(env)",
+  "Bash(printenv *)",
+  "Bash(date *)",
+  "Bash(curl *)",
+  "Bash(wget *)",
+  "Bash(jq *)",
+  "Bash(sed *)",
+  "Bash(awk *)",
+  "Bash(cut *)",
+  "Bash(tr *)",
+  "Bash(xargs *)",
+  "Bash(tsc *)",
+  "Bash(eslint *)",
+  "Bash(prettier *)",
+  "Bash(biome *)",
+  "Bash(docker compose *)",
+  "Bash(docker build *)",
+  "Bash(docker ps *)",
+  "Bash(docker logs *)",
+  "Bash(tmux *)",
+  "Bash(ssh *)",
+  "Bash(scp *)",
+  "Bash(rsync *)",
+  "Read",
+  "Write",
+  "Edit",
+];
+
+const DEFAULT_DENY_PATTERNS = [
+  "staging",
+  "stg",
+  "prod",
+  "production",
+  "database",
+  "db",
+  "migrate",
+  "seed",
+  "DROP",
+  "DELETE FROM",
+  "UPDATE .* SET",
+  "INSERT INTO",
+  "psql",
+  "mysql",
+  "mongosh",
+  "prisma db push",
+  "prisma migrate",
+];
+
+function buildDenyHookCommand(patterns: string[]): string {
+  const regex = patterns.join("|");
+  return `bash -c 'INPUT=$(cat); if echo "$INPUT" | grep -qiE "(${regex})"; then echo "BLOCK: This command appears to touch a staging/production environment or database. Please confirm."; exit 2; fi'`;
+}
+
+export async function writeClaudeSettings(
+  workingDir: string,
+  hostName?: string
+): Promise<void> {
+  const config = await loadConfig();
+  const csmSettings = config.claudeSettings;
+
+  const allowedTools = csmSettings?.allowedTools ?? DEFAULT_ALLOWED_TOOLS;
+  const denyPatterns = csmSettings?.denyPatterns ?? DEFAULT_DENY_PATTERNS;
+
+  // Read existing .claude/settings.json if present
+  let existing: Record<string, any> = {};
+  const settingsPath = `${workingDir}/.claude/settings.json`;
+  const readResult = await exec(`cat "${settingsPath}" 2>/dev/null`, hostName);
+  if (readResult.success && readResult.stdout.trim()) {
+    try {
+      existing = JSON.parse(readResult.stdout);
+    } catch {
+      // Invalid JSON, start fresh
+    }
+  }
+
+  // Merge permissions.allow — deduplicate with existing
+  const existingAllow: string[] = existing.permissions?.allow ?? [];
+  const mergedAllow = [...new Set([...existingAllow, ...allowedTools])];
+
+  // Merge hooks — append our deny hook without removing existing ones
+  const existingHooks = existing.hooks?.PreToolUse ?? [];
+  const denyHookCommand = buildDenyHookCommand(denyPatterns);
+  const csmHook = {
+    matcher: "Bash",
+    hooks: [
+      {
+        type: "command",
+        command: denyHookCommand,
+      },
+    ],
+  };
+
+  // Check if we already injected a CSM hook (avoid duplicates on re-create)
+  const hasExistingCsmHook = existingHooks.some(
+    (h: any) =>
+      h.matcher === "Bash" &&
+      h.hooks?.some((inner: any) => inner.command?.includes("BLOCK: This command appears to touch"))
+  );
+
+  const mergedPreToolUse = hasExistingCsmHook
+    ? existingHooks
+    : [...existingHooks, csmHook];
+
+  const merged = {
+    ...existing,
+    permissions: {
+      ...existing.permissions,
+      allow: mergedAllow,
+    },
+    hooks: {
+      ...existing.hooks,
+      PreToolUse: mergedPreToolUse,
+    },
+  };
+
+  const json = JSON.stringify(merged, null, 2);
+  const escaped = json.replace(/'/g, "'\\''");
+  await exec(`mkdir -p "${workingDir}/.claude"`, hostName);
+  await exec(`echo '${escaped}' > "${settingsPath}"`, hostName);
+}
+
 export async function createSession(
   name: string,
   workingDir: string,
@@ -314,6 +466,9 @@ export async function createSession(
 
   // Write CLAUDE.md with feedback protocol (and Linear issue context if provided)
   await writeClaudeContext(workingDir, linearIssue, hostName);
+
+  // Write .claude/settings.json with permissions and safety hooks (merges with existing)
+  await writeClaudeSettings(workingDir, hostName);
 
   // Create detached tmux session with a login shell, then run claude
   // Using a login shell ensures proper environment (PATH, etc.)
@@ -340,6 +495,45 @@ export async function runSetupScript(
 
   await exec(`tmux send-keys -t ${sessionName}:terminal 'bash .csm-setup.sh' Enter`, hostName);
   return true;
+}
+
+export async function renameSession(
+  oldName: string,
+  newName: string,
+  hostName?: string
+): Promise<CommandResult> {
+  // Check new name doesn't already exist
+  if (await sessionExists(newName, hostName)) {
+    return {
+      success: false,
+      stdout: "",
+      stderr: `Session "${newName}" already exists`,
+      exitCode: 1,
+    };
+  }
+
+  const oldSessionName = getSessionName(oldName);
+  const newSessionName = getSessionName(newName);
+
+  // Rename tmux session
+  const result = await exec(
+    `tmux rename-session -t ${oldSessionName} ${newSessionName}`,
+    hostName
+  );
+  if (!result.success) {
+    return result;
+  }
+
+  // Rename worktree directory
+  const { renameWorktree } = await import("./worktree");
+  const renameResult = await renameWorktree(oldName, newName, hostName);
+  if (!renameResult.success) {
+    // Try to rollback tmux rename
+    await exec(`tmux rename-session -t ${newSessionName} ${oldSessionName}`, hostName);
+    return renameResult;
+  }
+
+  return result;
 }
 
 export async function killSession(

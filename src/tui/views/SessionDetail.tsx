@@ -45,7 +45,7 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
     if (!session) return;
     const tmuxSessionName = getSessionName(session.name);
     if (session.host) {
-      await exitTuiAndAttachRemote(tmuxSessionName, session.host);
+      await exitTuiAndAttachRemote(tmuxSessionName, session.host, session.worktreePath);
     } else {
       await exitTuiAndAttachAutoReturn(session.name, tmuxSessionName);
     }

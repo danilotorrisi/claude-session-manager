@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { Box, Text, useInput, useApp } from "ink";
-import TextInput from "ink-text-input";
+import TextInput from "../components/TextInput";
 import type { AppState, AppAction } from "../types";
 import { nextTab } from "../types";
 import type { R2Config } from "../../types";

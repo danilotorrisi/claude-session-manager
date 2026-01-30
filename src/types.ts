@@ -30,6 +30,11 @@ export interface R2Config {
   publicUrl?: string;
 }
 
+export interface ClaudeSettingsConfig {
+  allowedTools?: string[];
+  denyPatterns?: string[];
+}
+
 export interface Config {
   defaultRepo?: string;
   worktreeBase: string;
@@ -39,6 +44,7 @@ export interface Config {
   projectsBase?: string;
   r2?: R2Config;
   feedbackEnabled?: boolean;
+  claudeSettings?: ClaudeSettingsConfig;
 }
 
 export interface GitStats {

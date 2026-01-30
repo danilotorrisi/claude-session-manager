@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Box, Text, useInput } from "ink";
-import TextInput from "ink-text-input";
+import TextInput from "../components/TextInput";
 import Spinner from "ink-spinner";
 import type { AppState, AppAction } from "../types";
 import type { LinearIssue, Project } from "../../types";

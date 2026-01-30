@@ -1,5 +1,5 @@
 import { homedir } from "os";
-import { join } from "path";
+import { basename, join } from "path";
 import type { Config, HostConfig, Project, R2Config } from "../types";
 
 export function expandTilde(filepath: string): string {
@@ -15,13 +15,24 @@ export function isRelativePath(path: string): boolean {
 export function getProjectsBase(config: Config, hostName?: string): string | undefined {
   if (hostName) {
     const host = config.hosts[hostName];
-    return host?.projectsBase || config.projectsBase;
+    // For remote hosts, prefer host-specific projectsBase, then fall back to
+    // the host's defaultRepo (not the global projectsBase, which is a local path).
+    return host?.projectsBase || host?.defaultRepo;
   }
   return config.projectsBase;
 }
 
 export function resolveProjectPath(repoPath: string, config: Config, hostName?: string): string {
   if (!isRelativePath(repoPath)) {
+    // For remote hosts, an absolute local path won't exist on the remote.
+    // Extract the repo name and combine with the remote host's projectsBase.
+    if (hostName) {
+      const remoteBase = getProjectsBase(config, hostName);
+      if (remoteBase) {
+        const repoName = basename(expandTilde(repoPath));
+        return join(expandTilde(remoteBase), repoName);
+      }
+    }
     return expandTilde(repoPath);
   }
   const base = getProjectsBase(config, hostName);

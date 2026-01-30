@@ -1,17 +1,19 @@
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Box, Text, useInput, useApp } from "ink";
-import TextInput from "ink-text-input";
+import TextInput from "../components/TextInput";
+import Spinner from "ink-spinner";
 import { SessionList } from "../components/SessionList";
 import { StatusBar } from "../components/StatusBar";
 import { GitChangesPanel } from "../components/GitChangesPanel";
-import type { Session, GitStats } from "../../types";
+import type { Session, GitStats, LinearIssue } from "../../types";
 import type { AppState, AppAction } from "../types";
 import { nextTab } from "../types";
-import { killSession, getSessionName, sendToSession, getDetailedGitStats, getFileDiff } from "../../lib/tmux";
-import { removeWorktree, loadSessionMetadata, deleteBranch, checkWorktreeClean, squashMergeToMain, generateCommitMessage, getWorktreePath } from "../../lib/worktree";
+import { killSession, getSessionName, sendToSession, getDetailedGitStats, getFileDiff, renameSession, writeClaudeContext } from "../../lib/tmux";
+import { removeWorktree, loadSessionMetadata, deleteBranch, checkWorktreeClean, squashMergeToMain, generateCommitMessage, getWorktreePath, updateSessionProject, updateSessionTask } from "../../lib/worktree";
 import { exec as cpExec } from "child_process";
 import { exec as sshExec } from "../../lib/ssh";
-import { getDefaultRepo, saveArchivedSession } from "../../lib/config";
+import { getDefaultRepo, saveArchivedSession, getLinearApiKey } from "../../lib/config";
+import { searchIssues } from "../../lib/linear";
 import { cleanupStateFile } from "../../lib/claude-state";
 import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal, exitTuiAndAttachRemote, exitTuiAndAttachRemoteTerminal } from "../index";
 import { colors } from "../theme";
@@ -91,6 +93,20 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   const [diffLines, setDiffLines] = useState<string[] | null>(null);
   const [diffScrollOffset, setDiffScrollOffset] = useState(0);
   const [loadingDiff, setLoadingDiff] = useState(false);
+  // Edit modal state
+  type EditField = "name" | "project" | "task";
+  const [editMode, setEditMode] = useState(false);
+  const [editField, setEditField] = useState<EditField>("name");
+  const [editName, setEditName] = useState("");
+  const [editProjectIndex, setEditProjectIndex] = useState(0);
+  const [editTaskQuery, setEditTaskQuery] = useState("");
+  const [editTaskResults, setEditTaskResults] = useState<LinearIssue[]>([]);
+  const [editTaskSelectedIdx, setEditTaskSelectedIdx] = useState(0);
+  const [editTaskSearching, setEditTaskSearching] = useState(false);
+  const [editSelectedTask, setEditSelectedTask] = useState<LinearIssue | null>(null);
+  const [editLinearApiKey, setEditLinearApiKey] = useState<string | null>(null);
+  const [editOriginalSession, setEditOriginalSession] = useState<Session | null>(null);
+  const editDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Poll for feedback report notifications
   useEffect(() => {
@@ -104,6 +120,33 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
     }, 5000);
     return () => clearInterval(interval);
   }, [onRefresh]);
+
+  // Debounced Linear search for edit modal
+  useEffect(() => {
+    if (!editMode || editField !== "task" || !editLinearApiKey || !editTaskQuery.trim()) {
+      setEditTaskResults([]);
+      return;
+    }
+
+    if (editDebounceRef.current) clearTimeout(editDebounceRef.current);
+
+    editDebounceRef.current = setTimeout(async () => {
+      setEditTaskSearching(true);
+      try {
+        const results = await searchIssues(editTaskQuery, editLinearApiKey);
+        setEditTaskResults(results);
+        setEditTaskSelectedIdx(0);
+      } catch {
+        setEditTaskResults([]);
+      } finally {
+        setEditTaskSearching(false);
+      }
+    }, 300);
+
+    return () => {
+      if (editDebounceRef.current) clearTimeout(editDebounceRef.current);
+    };
+  }, [editTaskQuery, editLinearApiKey, editField, editMode]);
 
   // Compute grouped sessions for display
   const sessionGroups = groupSessionsByProject(state.sessions);
@@ -127,7 +170,7 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   const handleAttach = useCallback(async (session: Session) => {
     const tmuxSessionName = getSessionName(session.name);
     if (session.host) {
-      await exitTuiAndAttachRemote(tmuxSessionName, session.host);
+      await exitTuiAndAttachRemote(tmuxSessionName, session.host, session.worktreePath);
     } else {
       // Exit TUI, attach to tmux session with auto-return when Claude starts working
       await exitTuiAndAttachAutoReturn(session.name, tmuxSessionName);
@@ -361,6 +404,107 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
     setTimeout(() => setReplyMode(false), 50);
   }, [previewSession, dispatch]);
 
+  const editProjectOptions: (string | null)[] = [...state.projects.map((p) => p.name), null];
+
+  const openEditModal = useCallback(async (session: Session) => {
+    setEditOriginalSession(session);
+    setEditName(session.name);
+    const currentProject = session.projectName || null;
+    const currentIdx = editProjectOptions.findIndex((p) => p === currentProject);
+    setEditProjectIndex(currentIdx >= 0 ? currentIdx : editProjectOptions.length - 1);
+    setEditSelectedTask(session.linearIssue || null);
+    setEditTaskQuery(session.linearIssue?.identifier || "");
+    setEditTaskResults([]);
+    setEditTaskSelectedIdx(0);
+    setEditTaskSearching(false);
+    setEditField("name");
+    setEditMode(true);
+    // Load linear API key
+    const key = await getLinearApiKey();
+    setEditLinearApiKey(key || null);
+  }, [editProjectOptions]);
+
+  const closeEditModal = useCallback(() => {
+    setEditMode(false);
+    setEditField("name");
+    setEditName("");
+    setEditProjectIndex(0);
+    setEditTaskQuery("");
+    setEditTaskResults([]);
+    setEditTaskSelectedIdx(0);
+    setEditTaskSearching(false);
+    setEditSelectedTask(null);
+    setEditLinearApiKey(null);
+    setEditOriginalSession(null);
+  }, []);
+
+  const handleEditSubmit = useCallback(async () => {
+    if (!editOriginalSession) return;
+    const original = editOriginalSession;
+    const newName = editName.trim();
+
+    if (!newName) {
+      dispatch({ type: "SET_ERROR", error: "Name cannot be empty" });
+      return;
+    }
+    if (!/^[a-zA-Z0-9_-]+$/.test(newName)) {
+      dispatch({ type: "SET_ERROR", error: "Name must only contain alphanumeric, hyphens, and underscores" });
+      return;
+    }
+
+    const nameChanged = newName !== original.name;
+    const newProject = editProjectOptions[editProjectIndex] ?? null;
+    const projectChanged = newProject !== (original.projectName || null);
+    const newTask = editSelectedTask;
+    const taskChanged = (newTask?.id || null) !== (original.linearIssue?.id || null);
+
+    if (!nameChanged && !projectChanged && !taskChanged) {
+      closeEditModal();
+      dispatch({ type: "SET_MESSAGE", message: "No changes" });
+      return;
+    }
+
+    try {
+      let currentName = original.name;
+
+      // 1. Rename if changed
+      if (nameChanged) {
+        const result = await renameSession(original.name, newName, original.host);
+        if (!result.success) {
+          dispatch({ type: "SET_ERROR", error: result.stderr });
+          closeEditModal();
+          return;
+        }
+        currentName = newName;
+      }
+
+      // 2. Update project if changed
+      if (projectChanged) {
+        await updateSessionProject(currentName, newProject, original.host);
+      }
+
+      // 3. Update task if changed
+      if (taskChanged) {
+        await updateSessionTask(currentName, newTask, original.host);
+        // Rewrite CLAUDE.md with new issue context
+        const wtPath = original.worktreePath || await getWorktreePath(currentName);
+        await writeClaudeContext(wtPath, newTask || undefined, original.host);
+      }
+
+      const messages: string[] = [];
+      if (nameChanged) messages.push(`renamed → "${currentName}"`);
+      if (projectChanged) messages.push(newProject ? `project → "${newProject}"` : "project removed");
+      if (taskChanged) messages.push(newTask ? `task → ${newTask.identifier}` : "task removed");
+
+      closeEditModal();
+      dispatch({ type: "SET_MESSAGE", message: messages.join(", ") });
+      await onRefresh();
+    } catch (error) {
+      dispatch({ type: "SET_ERROR", error: error instanceof Error ? error.message : "Failed to update session" });
+      closeEditModal();
+    }
+  }, [editOriginalSession, editName, editProjectIndex, editProjectOptions, editSelectedTask, closeEditModal, dispatch, onRefresh]);
+
   const isEditing = mergeState.phase === "editing";
 
   const fileChanges = detailedGitStats?.fileChanges;
@@ -384,11 +528,12 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       });
   }, [previewSession, fileChanges]);
 
-  // Esc handling always active (to exit reply mode or editing mode)
+  // Esc handling always active (to exit reply mode, editing mode, or edit modal)
   useInput((_input, key) => {
     if (key.escape) {
       setReplyMode(false);
       setReplyText("");
+      closeEditModal();
       setPreviewSession(null);
       setConfirmKill(null);
       setMergeState({ phase: "idle" });
@@ -400,7 +545,75 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       setDiffScrollOffset(0);
       dispatch({ type: "CLEAR_MESSAGE" });
     }
-  }, { isActive: replyMode || isEditing });
+  }, { isActive: replyMode || isEditing || editMode });
+
+  // Edit modal input handling
+  useInput((input, key) => {
+    if (key.escape) {
+      closeEditModal();
+      dispatch({ type: "CLEAR_MESSAGE" });
+      return;
+    }
+
+    // Ctrl+S to save
+    if (input === "s" && key.ctrl) {
+      handleEditSubmit();
+      return;
+    }
+
+    // Tab / Shift+Tab to cycle fields
+    if (key.tab) {
+      if (key.shift) {
+        setEditField((f) => f === "task" ? "project" : f === "project" ? "name" : "task");
+      } else {
+        setEditField((f) => f === "name" ? "project" : f === "project" ? "task" : "name");
+      }
+      return;
+    }
+
+    // Field-specific handling
+    if (editField === "project") {
+      if (key.upArrow) {
+        setEditProjectIndex((i) => Math.max(0, i - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setEditProjectIndex((i) => Math.min(editProjectOptions.length - 1, i + 1));
+        return;
+      }
+    }
+
+    if (editField === "task") {
+      if (editTaskResults.length > 0) {
+        if (key.upArrow) {
+          setEditTaskSelectedIdx((i) => Math.max(0, i - 1));
+          return;
+        }
+        if (key.downArrow) {
+          setEditTaskSelectedIdx((i) => Math.min(editTaskResults.length - 1, i + 1));
+          return;
+        }
+        if (key.return) {
+          const issue = editTaskResults[editTaskSelectedIdx];
+          setEditSelectedTask(issue);
+          setEditTaskResults([]);
+          setEditTaskQuery(issue.identifier);
+          return;
+        }
+      }
+      // Backspace clears selected task when query is empty
+      if (key.backspace && !editTaskQuery && editSelectedTask) {
+        setEditSelectedTask(null);
+        return;
+      }
+    }
+
+    // Enter on last field (task) submits if no results shown
+    if (key.return && editField === "task" && editTaskResults.length === 0) {
+      handleEditSubmit();
+      return;
+    }
+  }, { isActive: editMode });
 
   // All other keybindings disabled during reply mode
   useInput((input, _key) => {
@@ -465,6 +678,8 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
     } else if (input === "n" && pendingArchive) {
       setPendingArchive(null);
       dispatch({ type: "SET_MESSAGE", message: "Archive skipped — session kept with [merged] tag" });
+    } else if (input === "e" && orderedSessions[selectedIndex]) {
+      openEditModal(orderedSessions[selectedIndex]);
     } else if (input === "f" && orderedSessions[selectedIndex]) {
       const session = orderedSessions[selectedIndex];
       if (session.worktreePath) {
@@ -502,7 +717,7 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       setDiffScrollOffset(0);
       dispatch({ type: "CLEAR_MESSAGE" });
     }
-  }, { isActive: !replyMode && !isEditing });
+  }, { isActive: !replyMode && !isEditing && !editMode });
 
   // Reset confirm state when selection changes
   const handleSelect = (index: number) => {
@@ -518,6 +733,7 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       setDiffScrollOffset(0);
       setReplyMode(false);
       setReplyText("");
+      closeEditModal();
     }
     setSelectedIndex(index);
   };
@@ -536,7 +752,7 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       <SessionList
         sessions={orderedSessions}
         selectedIndex={selectedIndex}
-        inputActive={!replyMode && !isEditing}
+        inputActive={!replyMode && !isEditing && !editMode}
         loading={state.loading}
         onSelect={handleSelect}
         onActivate={handleAttach}
@@ -629,6 +845,157 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
             onSubmit={handleReplySubmit}
             placeholder="Type a reply and press Enter..."
           />
+        </Box>
+      )}
+      {editMode && (
+        <Box
+          flexDirection="column"
+          borderStyle="round"
+          borderColor={colors.accent}
+          marginX={1}
+          paddingX={2}
+          paddingY={0}
+        >
+          <Box marginBottom={0}>
+            <Text backgroundColor={colors.accent} color={colors.textBright} bold>{" ◆ Edit Session "}</Text>
+          </Box>
+
+          {/* Name field */}
+          <Box>
+            <Box width={12}>
+              <Text
+                color={editField === "name" ? colors.textBright : colors.muted}
+                backgroundColor={editField === "name" ? colors.primary : undefined}
+                bold={editField === "name"}
+              >
+                Name:
+              </Text>
+            </Box>
+            <Box>
+              {editField === "name" ? (
+                <TextInput
+                  value={editName}
+                  onChange={setEditName}
+                  placeholder="session-name"
+                />
+              ) : (
+                <Text>{editName}</Text>
+              )}
+            </Box>
+          </Box>
+
+          {/* Project field */}
+          <Box flexDirection="column">
+            <Box>
+              <Box width={12}>
+                <Text
+                  color={editField === "project" ? colors.textBright : colors.muted}
+                  backgroundColor={editField === "project" ? colors.primary : undefined}
+                  bold={editField === "project"}
+                >
+                  Project:
+                </Text>
+              </Box>
+              <Box>
+                <Text color={editProjectOptions[editProjectIndex] ? colors.success : colors.muted}>
+                  {editProjectOptions[editProjectIndex] || "None"}
+                </Text>
+              </Box>
+            </Box>
+            {editField === "project" && (
+              <Box flexDirection="column" marginLeft={2}>
+                {state.projects.map((project, i) => (
+                  <Box key={project.name}>
+                    <Text
+                      color={i === editProjectIndex ? colors.textBright : colors.muted}
+                      backgroundColor={i === editProjectIndex ? colors.primary : undefined}
+                      bold={i === editProjectIndex}
+                    >
+                      {i === editProjectIndex ? "▸ " : "  "}{project.name}
+                    </Text>
+                  </Box>
+                ))}
+                <Box>
+                  <Text
+                    color={editProjectIndex === state.projects.length ? colors.textBright : colors.muted}
+                    backgroundColor={editProjectIndex === state.projects.length ? colors.primary : undefined}
+                    bold={editProjectIndex === state.projects.length}
+                  >
+                    {editProjectIndex === state.projects.length ? "▸ " : "  "}None
+                  </Text>
+                </Box>
+              </Box>
+            )}
+          </Box>
+
+          {/* Task field */}
+          <Box flexDirection="column">
+            <Box>
+              <Box width={12}>
+                <Text
+                  color={editField === "task" ? colors.textBright : colors.muted}
+                  backgroundColor={editField === "task" ? colors.primary : undefined}
+                  bold={editField === "task"}
+                >
+                  Task:
+                </Text>
+              </Box>
+              <Box>
+                {editField === "task" ? (
+                  <Box>
+                    <TextInput
+                      value={editTaskQuery}
+                      onChange={(v) => {
+                        setEditTaskQuery(v);
+                        if (!v.trim()) setEditSelectedTask(null);
+                      }}
+                      placeholder="Search Linear issues..."
+                    />
+                    {editSelectedTask && !editTaskQuery.trim() && (
+                      <Text color={colors.success}> {editSelectedTask.identifier}: {editSelectedTask.title.slice(0, 30)}</Text>
+                    )}
+                  </Box>
+                ) : editSelectedTask ? (
+                  <Text color={colors.success}>{editSelectedTask.identifier}: {editSelectedTask.title.slice(0, 40)}</Text>
+                ) : (
+                  <Text color={colors.muted}>None</Text>
+                )}
+              </Box>
+            </Box>
+            {editField === "task" && editTaskSearching && (
+              <Box marginLeft={2}>
+                <Text color={colors.muted}><Spinner type="dots" /> Searching...</Text>
+              </Box>
+            )}
+            {editField === "task" && editTaskResults.length > 0 && (
+              <Box flexDirection="column" marginLeft={2}>
+                {editTaskResults.slice(0, 5).map((issue, idx) => (
+                  <Box key={issue.id}>
+                    <Text
+                      color={idx === editTaskSelectedIdx ? colors.textBright : colors.muted}
+                      backgroundColor={idx === editTaskSelectedIdx ? colors.primary : undefined}
+                      bold={idx === editTaskSelectedIdx}
+                    >
+                      {idx === editTaskSelectedIdx ? "› " : "  "}
+                      {issue.identifier}: {issue.title.slice(0, 50)}
+                      {issue.state ? ` [${issue.state}]` : ""}
+                    </Text>
+                  </Box>
+                ))}
+              </Box>
+            )}
+            {!editLinearApiKey && editField === "task" && (
+              <Box marginLeft={2}>
+                <Text color={colors.muted} dimColor>No Linear API key configured</Text>
+              </Box>
+            )}
+          </Box>
+
+          <Box marginTop={0}>
+            <Text color={colors.muted} dimColor>
+              [Tab] next · [Shift+Tab] prev · [Ctrl+S] save · [Esc] cancel
+            </Text>
+          </Box>
         </Box>
       )}
       {feedbackNotification && (

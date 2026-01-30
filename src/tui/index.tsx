@@ -178,7 +178,7 @@ export async function exitTuiAndAttachTerminal(sessionName: string, tmuxSessionN
   startTui();
 }
 
-export async function exitTuiAndAttachRemote(tmuxSessionName: string, hostName: string): Promise<void> {
+export async function exitTuiAndAttachRemote(tmuxSessionName: string, hostName: string, worktreePath?: string): Promise<void> {
   const hostConfig = await getHost(hostName);
   if (!hostConfig) return;
 
@@ -197,6 +197,60 @@ export async function exitTuiAndAttachRemote(tmuxSessionName: string, hostName: 
   ];
 
   const { spawnSync } = await import("child_process");
+
+  // Launch a background watcher on the remote that auto-detaches when Claude starts working.
+  // Uses base64 encoding to avoid shell quoting issues across SSH.
+  if (worktreePath) {
+    const watcherScript = [
+      `STATE_DIR="/tmp/csm-claude-state"`,
+      `TARGET_PATH="${worktreePath}"`,
+      `SESSION="${tmuxSessionName}"`,
+      `TIMEOUT=300`,
+      `sleep 1`,
+      `SAW_NON_WORKING=false`,
+      `ELAPSED=0`,
+      `while [ "$ELAPSED" -lt "$TIMEOUT" ]; do`,
+      `  ATTACHED=$(tmux display-message -t "$SESSION" -p '#{session_attached}' 2>/dev/null)`,
+      `  if [ "$ATTACHED" != "1" ]; then exit 0; fi`,
+      `  CURRENT_STATE=""`,
+      `  LATEST_TS=0`,
+      `  for f in "$STATE_DIR"/*.json; do`,
+      `    [ -f "$f" ] || continue`,
+      `    CONTENT=$(cat "$f" 2>/dev/null)`,
+      `    CWD=$(echo "$CONTENT" | grep -o '"cwd":"[^"]*"' | head -1 | cut -d'"' -f4)`,
+      `    STATE=$(echo "$CONTENT" | grep -o '"state":"[^"]*"' | head -1 | cut -d'"' -f4)`,
+      `    TS=$(echo "$CONTENT" | grep -o '"timestamp":[0-9]*' | head -1 | cut -d: -f2)`,
+      `    if [ "$CWD" = "$TARGET_PATH" ]; then`,
+      `      if [ -n "$TS" ] && [ "$TS" -gt "$LATEST_TS" ] 2>/dev/null; then`,
+      `        LATEST_TS="$TS"`,
+      `        CURRENT_STATE="$STATE"`,
+      `      fi`,
+      `    fi`,
+      `  done`,
+      `  if [ "$CURRENT_STATE" != "working" ]; then SAW_NON_WORKING=true; fi`,
+      `  if [ "$SAW_NON_WORKING" = true ] && [ "$CURRENT_STATE" = "working" ]; then`,
+      `    sleep 0.3`,
+      `    tmux detach-client -s "$SESSION" 2>/dev/null`,
+      `    exit 0`,
+      `  fi`,
+      `  sleep 0.5`,
+      `  ELAPSED=$((ELAPSED + 1))`,
+      `done`,
+    ].join("\n");
+
+    const scriptBase64 = Buffer.from(watcherScript).toString("base64");
+    const scriptPath = `/tmp/csm-watcher-${tmuxSessionName}.sh`;
+
+    // Write script to temp file on remote and run it in background (survives SSH disconnect)
+    spawnSync("ssh", [
+      ...sshControlOpts,
+      hostConfig.host,
+      `echo '${scriptBase64}' | base64 -d > ${scriptPath} && nohup bash ${scriptPath} </dev/null >/dev/null 2>&1 &`,
+    ], {
+      stdio: "ignore",
+    });
+  }
+
   spawnSync("ssh", [
     ...sshControlOpts,
     "-t", hostConfig.host, `bash -lc 'TERM=xterm-256color tmux attach -t ${tmuxSessionName}:claude'`

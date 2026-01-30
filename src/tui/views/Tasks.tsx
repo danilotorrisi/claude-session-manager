@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { Box, Text, useInput, useApp } from "ink";
-import TextInput from "ink-text-input";
+import TextInput from "../components/TextInput";
 import type { AppState, AppAction } from "../types";
 import { nextTab } from "../types";
 import type { LinearIssue } from "../../types";
@@ -12,6 +12,7 @@ import {
   fetchTeams,
   fetchLabels,
   createIssue,
+  fetchViewerId,
   type WorkflowState,
   type LinearTeam,
   type LinearLabel,
@@ -111,8 +112,8 @@ export function Tasks({ state, dispatch, onRefresh, onLoadMore, paginationRef }:
   const [stateSelectError, setStateSelectError] = useState<string | null>(null);
 
   // Create mode state
-  type CreateField = "title" | "description" | "priority" | "labels" | "status";
-  const createFieldOrder: CreateField[] = ["title", "description", "priority", "labels", "status"];
+  type CreateField = "title" | "description" | "priority" | "labels" | "status" | "assign";
+  const createFieldOrder: CreateField[] = ["title", "description", "priority", "labels", "status", "assign"];
   const [createMode, setCreateMode] = useState(false);
   const [createField, setCreateField] = useState<CreateField>("title");
   const [createTitle, setCreateTitle] = useState("");
@@ -129,6 +130,8 @@ export function Tasks({ state, dispatch, onRefresh, onLoadMore, paginationRef }:
   const [createLoading, setCreateLoading] = useState(false);
   const [labelCursor, setLabelCursor] = useState(0);
   const [stateCursor, setStateCursor] = useState(0);
+  const [assignToMe, setAssignToMe] = useState(true);
+  const [viewerId, setViewerId] = useState<string | null>(null);
 
   const priorityOptions = [
     { value: 0, label: "None" },
@@ -153,6 +156,7 @@ export function Tasks({ state, dispatch, onRefresh, onLoadMore, paginationRef }:
     setCreateLoading(true);
     setLabelCursor(0);
     setStateCursor(0);
+    setAssignToMe(true);
 
     try {
       const config = await loadConfig();
@@ -161,7 +165,11 @@ export function Tasks({ state, dispatch, onRefresh, onLoadMore, paginationRef }:
         setCreateLoading(false);
         return;
       }
-      const teams = await fetchTeams(config.linearApiKey);
+      const [teams, myId] = await Promise.all([
+        fetchTeams(config.linearApiKey),
+        fetchViewerId(config.linearApiKey),
+      ]);
+      setViewerId(myId);
       setCreateTeams(teams);
       if (teams.length > 0) {
         const team = teams[0];
@@ -207,6 +215,7 @@ export function Tasks({ state, dispatch, onRefresh, onLoadMore, paginationRef }:
         priority: createPriority,
         stateId: selectedState?.id,
         labelIds: selectedLabels.size > 0 ? Array.from(selectedLabels) : undefined,
+        assigneeId: assignToMe && viewerId ? viewerId : undefined,
       });
       dispatch({ type: "SET_MESSAGE", message: `Created ${result.identifier}` });
       onRefresh();
@@ -309,13 +318,14 @@ export function Tasks({ state, dispatch, onRefresh, onLoadMore, paginationRef }:
       } else if (key.return && createStates.length > 0) {
         setSelectedState(createStates[stateCursor]);
       }
+    } else if (createField === "assign") {
+      if (input === " " || key.leftArrow || key.rightArrow) {
+        setAssignToMe((v) => !v);
+      }
     }
 
     // Enter on last field submits
-    if (key.return && createField === "status") {
-      if (createStates.length > 0) {
-        setSelectedState(createStates[stateCursor]);
-      }
+    if (key.return && createField === "assign") {
       submitCreateIssue();
     }
   }, { isActive: createMode && !createSubmitting && !createLoading && createField !== "title" && createField !== "description" });
@@ -694,6 +704,22 @@ export function Tasks({ state, dispatch, onRefresh, onLoadMore, paginationRef }:
                   {selectedState?.name || "—"}
                 </Text>
               )}
+            </Box>
+
+            {/* Assign to me */}
+            <Box
+              flexDirection="column"
+              borderStyle="round"
+              borderColor={createField === "assign" ? colors.primary : colors.cardBorder}
+              paddingX={2}
+              paddingY={0}
+            >
+              <Text color={createField === "assign" ? colors.textBright : colors.muted} bold>
+                Assign to me {createField === "assign" ? "(Space to toggle, Enter to submit)" : ""}
+              </Text>
+              <Text color={assignToMe ? colors.success : colors.text}>
+                {assignToMe ? "☑ Yes" : "☐ No"}
+              </Text>
             </Box>
 
             {createError && (

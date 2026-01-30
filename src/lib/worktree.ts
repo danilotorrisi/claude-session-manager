@@ -122,6 +122,82 @@ export async function createWorktree(
   return result;
 }
 
+export async function renameWorktree(
+  oldName: string,
+  newName: string,
+  hostName?: string
+): Promise<CommandResult> {
+  const oldPath = await getWorktreePath(oldName);
+  const newPath = await getWorktreePath(newName);
+
+  // Move the worktree directory
+  const mvResult = await exec(`mv "${oldPath}" "${newPath}"`, hostName);
+  if (!mvResult.success) {
+    return mvResult;
+  }
+
+  // Load metadata to get repoPath for git worktree repair
+  const metadata = await loadSessionMetadata(newName, hostName);
+  if (metadata?.repoPath) {
+    await exec(`cd "${metadata.repoPath}" && git worktree repair`, hostName);
+  }
+
+  return mvResult;
+}
+
+export async function updateSessionProject(
+  sessionName: string,
+  projectName: string | null,
+  hostName?: string
+): Promise<void> {
+  let metadata = await loadSessionMetadata(sessionName, hostName);
+  if (!metadata) {
+    // Create minimal metadata if none exists
+    metadata = {
+      repoPath: "",
+      branchName: "",
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  if (projectName) {
+    metadata.projectName = projectName;
+  } else {
+    delete metadata.projectName;
+  }
+
+  const metadataPath = await getMetadataPath(sessionName);
+  const json = JSON.stringify(metadata);
+  const escaped = json.replace(/'/g, "'\\''");
+  await exec(`echo '${escaped}' > "${metadataPath}"`, hostName);
+}
+
+export async function updateSessionTask(
+  sessionName: string,
+  linearIssue: LinearIssue | null,
+  hostName?: string
+): Promise<void> {
+  let metadata = await loadSessionMetadata(sessionName, hostName);
+  if (!metadata) {
+    metadata = {
+      repoPath: "",
+      branchName: "",
+      createdAt: new Date().toISOString(),
+    };
+  }
+
+  if (linearIssue) {
+    metadata.linearIssue = linearIssue;
+  } else {
+    delete metadata.linearIssue;
+  }
+
+  const metadataPath = await getMetadataPath(sessionName);
+  const json = JSON.stringify(metadata);
+  const escaped = json.replace(/'/g, "'\\''");
+  await exec(`echo '${escaped}' > "${metadataPath}"`, hostName);
+}
+
 export async function removeWorktree(
   sessionName: string,
   repoPath: string,

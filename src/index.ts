@@ -5,6 +5,7 @@ import { list } from "./commands/list";
 import { attach } from "./commands/attach";
 import { kill } from "./commands/kill";
 import { hosts } from "./commands/hosts";
+import { rename } from "./commands/rename";
 import { ensureConfigDir } from "./lib/config";
 import { startTui } from "./tui";
 
@@ -22,6 +23,7 @@ COMMANDS:
   list             List active sessions
   attach <name>    Attach to an existing session
   kill <name>      Kill a session and cleanup worktree
+  rename <old> <new>  Rename a session
   hosts            List configured remote hosts
   help             Show this help message
 
@@ -60,11 +62,13 @@ CONFIGURATION:
 function parseArgs(args: string[]): {
   command: string | null;
   name?: string;
+  positionalArgs: string[];
   options: Record<string, string | boolean>;
 } {
   const command = args[0] || null;
   const options: Record<string, string | boolean> = {};
   let name: string | undefined;
+  const positionalArgs: string[] = [];
 
   let i = 1;
   while (i < args.length) {
@@ -84,13 +88,15 @@ function parseArgs(args: string[]): {
       }
     } else if (!name) {
       name = arg;
+      positionalArgs.push(arg);
       i++;
     } else {
+      positionalArgs.push(arg);
       i++;
     }
   }
 
-  return { command, name, options };
+  return { command, name, positionalArgs, options };
 }
 
 async function main(): Promise<void> {
@@ -98,7 +104,7 @@ async function main(): Promise<void> {
   await ensureConfigDir();
 
   const args = process.argv.slice(2);
-  const { command, name, options } = parseArgs(args);
+  const { command, name, positionalArgs, options } = parseArgs(args);
 
   // No command = launch TUI
   if (!command) {
@@ -153,6 +159,17 @@ async function main(): Promise<void> {
         await kill(name, {
           host: options.host as string | undefined,
           deleteBranch: options["delete-branch"] === true,
+        });
+        break;
+
+      case "rename":
+        if (!name || !positionalArgs[1]) {
+          console.error("Error: Both old and new session names required");
+          console.error("Usage: csm rename <old> <new> [--host <remote>]");
+          process.exit(1);
+        }
+        await rename(name, positionalArgs[1], {
+          host: options.host as string | undefined,
         });
         break;
 

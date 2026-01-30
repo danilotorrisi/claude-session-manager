@@ -89,6 +89,7 @@ export function SessionList({
   }
 
   const hasAnyHost = sessions.some((s) => s.host);
+  const hasAnyTask = sessions.some((s) => s.linearIssue);
 
   return (
     <Box flexDirection="column" paddingX={1}>
@@ -97,7 +98,7 @@ export function SessionList({
         <Box width={3}>
           <Text color={colors.muted}> </Text>
         </Box>
-        <Box width={18}>
+        <Box width={22}>
           <Text color={colors.muted} bold>
             SESSION
           </Text>
@@ -109,7 +110,14 @@ export function SessionList({
             </Text>
           </Box>
         )}
-        <Box width={14}>
+        {hasAnyTask && (
+          <Box width={12}>
+            <Text color={colors.muted} bold>
+              TASK
+            </Text>
+          </Box>
+        )}
+        <Box width={12}>
           <Text color={colors.muted} bold>
             STATUS
           </Text>
@@ -165,13 +173,13 @@ export function SessionList({
                 <Text backgroundColor={rowBg} color={colors.muted}>{" "}</Text>
               )}
             </Box>
-            <Box width={18}>
+            <Box width={22}>
               <Text
                 color={isSelected ? colors.textBright : textColor}
                 bold={isSelected}
                 backgroundColor={isSelected ? colors.primary : rowBg}
               >
-                {session.name.slice(0, 16)}
+                {session.name.slice(0, 20)}
               </Text>
             </Box>
             {hasAnyHost && (
@@ -181,14 +189,18 @@ export function SessionList({
                 </Text>
               </Box>
             )}
-            {session.linearIssue && (
+            {hasAnyTask && (
               <Box width={12}>
-                <Text color={colors.accent} backgroundColor={rowBg}>
-                  [{session.linearIssue.identifier}]
-                </Text>
+                {session.linearIssue ? (
+                  <Text color={colors.accent} backgroundColor={rowBg}>
+                    {session.linearIssue.identifier.slice(0, 10)}
+                  </Text>
+                ) : (
+                  <Text color={colors.mutedDark} dimColor backgroundColor={rowBg}>{"-"}</Text>
+                )}
               </Box>
             )}
-            <Box width={14}>
+            <Box width={12}>
               {session.claudeState === "working" ? (
                 <Text color={colors.warning} backgroundColor={rowBg}>{"◎ working"}</Text>
               ) : session.claudeState === "waiting_for_input" ? (
