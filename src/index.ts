@@ -5,6 +5,7 @@ import { list } from "./commands/list";
 import { attach } from "./commands/attach";
 import { kill } from "./commands/kill";
 import { hosts } from "./commands/hosts";
+import { startWorker, statusWorker, syncWorker } from "./commands/worker";
 import { ensureConfigDir } from "./lib/config";
 import { startTui } from "./tui";
 
@@ -23,6 +24,7 @@ COMMANDS:
   attach <name>    Attach to an existing session
   kill <name>      Kill a session and cleanup worktree
   hosts            List configured remote hosts
+  worker [cmd]     Worker agent commands (start|status|sync)
   help             Show this help message
 
 OPTIONS:
@@ -158,6 +160,25 @@ async function main(): Promise<void> {
 
       case "hosts":
         await hosts();
+        break;
+
+      case "worker":
+        const workerCmd = name || "status";
+        switch (workerCmd) {
+          case "start":
+            await startWorker();
+            break;
+          case "status":
+            await statusWorker();
+            break;
+          case "sync":
+            await syncWorker();
+            break;
+          default:
+            console.error(`Unknown worker command: ${workerCmd}`);
+            console.error("Available: start, status, sync");
+            process.exit(1);
+        }
         break;
 
       case "help":
