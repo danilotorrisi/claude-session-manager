@@ -28,7 +28,11 @@ export async function startWorker(): Promise<void> {
   await agent.start();
 
   // Graceful shutdown
+  let running = true;
+  
   const shutdown = (signal: string) => {
+    if (!running) return;
+    running = false;
     console.log(`\nReceived ${signal}, shutting down...`);
     agent.stop().then(() => {
       process.exit(0);
@@ -41,11 +45,16 @@ export async function startWorker(): Promise<void> {
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("SIGTERM", () => shutdown("SIGTERM"));
 
-  // Keep process alive forever
-  // The timers in WorkerAgent (pollTimer, heartbeatTimer) keep the event loop busy
-  await new Promise<never>(() => {
-    // This promise never resolves, keeping the process running indefinitely
-    // Only exits via signal handlers above
+  // Keep process alive - simple infinite wait
+  // The timers in WorkerAgent already keep the event loop busy
+  await new Promise<void>((resolve) => {
+    // Check every second if we should shutdown
+    const check = setInterval(() => {
+      if (!running) {
+        clearInterval(check);
+        resolve();
+      }
+    }, 1000);
   });
 }
 
