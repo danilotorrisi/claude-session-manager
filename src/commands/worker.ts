@@ -113,3 +113,21 @@ export async function syncWorker(): Promise<void> {
     process.exit(1);
   }
 }
+
+export async function pollWorker(): Promise<void> {
+  const config: WorkerConfig = {
+    ...DEFAULT_CONFIG,
+    workerId: process.env.CSM_WORKER_ID || DEFAULT_CONFIG.workerId,
+  };
+
+  const agent = new WorkerAgent(config);
+
+  // Start agent (which does initial poll)
+  await agent.start();
+  
+  // Wait a moment for the initial poll to complete
+  await new Promise(resolve => setTimeout(resolve, 2000));
+  
+  // Stop agent
+  await agent.stop();
+}

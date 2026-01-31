@@ -6,7 +6,7 @@ import { attach } from "./commands/attach";
 import { kill } from "./commands/kill";
 import { hosts } from "./commands/hosts";
 import { rename } from "./commands/rename";
-import { startWorker, statusWorker, syncWorker } from "./commands/worker";
+import { startWorker, statusWorker, syncWorker, pollWorker } from "./commands/worker";
 import { startServer } from "./commands/server";
 import { ensureConfigDir } from "./lib/config";
 import { startTui } from "./tui";
@@ -193,9 +193,12 @@ async function main(): Promise<void> {
           case "sync":
             await syncWorker();
             break;
+          case "poll":
+            await pollWorker();
+            break;
           default:
             console.error(`Unknown worker command: ${workerCmd}`);
-            console.error("Available: start, status, sync");
+            console.error("Available: start, status, sync, poll");
             process.exit(1);
         }
         break;
