@@ -122,11 +122,16 @@ export async function pollWorker(): Promise<void> {
 
   const agent = new WorkerAgent(config);
 
+  console.log(`[Poll] Starting single poll for worker ${config.workerId}...`);
+  
   // Start agent (which does initial poll)
   await agent.start();
   
-  // Wait a moment for the initial poll to complete
-  await new Promise(resolve => setTimeout(resolve, 2000));
+  // Wait for polling and event push to complete
+  // Heartbeat will also be sent after 30s, but we don't wait for it
+  await new Promise(resolve => setTimeout(resolve, 5000));
+  
+  console.log("[Poll] Poll complete, stopping agent");
   
   // Stop agent
   await agent.stop();
