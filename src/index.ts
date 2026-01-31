@@ -6,6 +6,8 @@ import { attach } from "./commands/attach";
 import { kill } from "./commands/kill";
 import { hosts } from "./commands/hosts";
 import { rename } from "./commands/rename";
+import { startWorker, statusWorker, syncWorker } from "./commands/worker";
+import { startServer } from "./commands/server";
 import { ensureConfigDir } from "./lib/config";
 import { startTui } from "./tui";
 
@@ -25,6 +27,8 @@ COMMANDS:
   kill <name>      Kill a session and cleanup worktree
   rename <old> <new>  Rename a session
   hosts            List configured remote hosts
+  worker [cmd]     Worker agent commands (start|status|sync)
+  server           Start Master API server (receives worker events)
   help             Show this help message
 
 OPTIONS:
@@ -175,6 +179,30 @@ async function main(): Promise<void> {
 
       case "hosts":
         await hosts();
+        break;
+
+      case "worker":
+        const workerCmd = name || "status";
+        switch (workerCmd) {
+          case "start":
+            await startWorker();
+            break;
+          case "status":
+            await statusWorker();
+            break;
+          case "sync":
+            await syncWorker();
+            break;
+          default:
+            console.error(`Unknown worker command: ${workerCmd}`);
+            console.error("Available: start, status, sync");
+            process.exit(1);
+        }
+        break;
+
+      case "server":
+        const serverPort = options.port ? parseInt(options.port as string, 10) : undefined;
+        await startServer(serverPort);
         break;
 
       case "help":
