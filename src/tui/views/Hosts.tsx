@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Box, Text, useInput, useApp } from "ink";
 import type { AppState, AppAction, WorkerDisplayInfo } from "../types";
 import { nextTab } from "../types";
@@ -40,6 +40,13 @@ export function Hosts({ state, dispatch, onRefresh, masterReachable }: HostsProp
 
   const workers = state.workers;
   const hasLocalWorker = workers.some((w) => w.isLocal);
+
+  // Clamp selectedIndex when the worker list shrinks
+  useEffect(() => {
+    if (workers.length > 0 && selectedIndex >= workers.length) {
+      setSelectedIndex(workers.length - 1);
+    }
+  }, [workers.length, selectedIndex]);
 
   useInput((input, key) => {
     if (input === "q") {

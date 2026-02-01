@@ -8,11 +8,12 @@ export function generateWorkerId(): string {
   return host || "worker";
 }
 
-function buildWorkerConfig(overrides?: Partial<WorkerConfig>): WorkerConfig {
+export function buildWorkerConfig(overrides?: Partial<WorkerConfig>): WorkerConfig {
+  const workerId = overrides?.workerId || process.env.CSM_WORKER_ID || generateWorkerId();
   return {
-    workerId: process.env.CSM_WORKER_ID || generateWorkerId(),
+    workerId,
     masterUrl: process.env.CSM_MASTER_URL,
-    stateFile: join(homedir(), ".config/csm-worker/state.json"),
+    stateFile: join(homedir(), `.config/csm-worker/state-${workerId}.json`),
     pollInterval: 10000,
     heartbeatInterval: 30000,
     ...overrides,

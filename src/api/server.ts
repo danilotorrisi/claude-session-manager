@@ -24,7 +24,14 @@ const state: MasterState = {
   sessions: new Map(),
 };
 
-function handleWorkerEvent(event: WorkerEvent): Response {
+/** Reset in-memory state — for testing only. */
+export function resetMasterState(): void {
+  state.workers.clear();
+  state.events.length = 0;
+  state.sessions.clear();
+}
+
+export function handleWorkerEvent(event: WorkerEvent): Response {
   // Store event (cap at 1000 events)
   state.events.push(event);
   if (state.events.length > 1000) {
@@ -126,7 +133,7 @@ function handleHealth(): Response {
   );
 }
 
-function deriveWorkerStatus(lastHeartbeat: string): "online" | "stale" | "offline" {
+export function deriveWorkerStatus(lastHeartbeat: string): "online" | "stale" | "offline" {
   if (!lastHeartbeat) return "offline";
   const age = Date.now() - new Date(lastHeartbeat).getTime();
   if (age < HEARTBEAT_ONLINE_THRESHOLD) return "online";
@@ -134,7 +141,7 @@ function deriveWorkerStatus(lastHeartbeat: string): "online" | "stale" | "offlin
   return "offline";
 }
 
-function handleGetWorkers(): Response {
+export function handleGetWorkers(): Response {
   const workers = Array.from(state.workers.entries()).map(([id, info]) => ({
     id,
     status: deriveWorkerStatus(info.lastHeartbeat),

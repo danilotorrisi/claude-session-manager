@@ -4,23 +4,23 @@ import type { AppAction, RegisteredWorker, WorkerDisplayInfo } from "../types";
 
 const POLL_INTERVAL = 5_000;
 const DEFAULT_MASTER_URL = `http://localhost:${process.env.CSM_API_PORT || "3000"}`;
+const LOCAL_HOSTNAME = hostname();
 
 function getMasterUrl(): string {
   return process.env.CSM_MASTER_URL || DEFAULT_MASTER_URL;
 }
 
-function normalizeHostname(h: string): string {
+export function normalizeHostname(h: string): string {
   return h.replace(/\.local$/, "").toLowerCase();
 }
 
-function isLocalWorker(workerHostname: string | undefined, tuiHostname: string): boolean {
+export function isLocalWorker(workerHostname: string | undefined, tuiHostname: string): boolean {
   if (!workerHostname) return false;
   return normalizeHostname(workerHostname) === normalizeHostname(tuiHostname);
 }
 
 export function useWorkers(dispatch: React.Dispatch<AppAction>) {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const localHostname = hostname();
   const [masterReachable, setMasterReachable] = useState<boolean | null>(null);
 
   const fetchWorkers = useCallback(async () => {
@@ -40,7 +40,7 @@ export function useWorkers(dispatch: React.Dispatch<AppAction>) {
       const enriched: WorkerDisplayInfo[] = data.workers
         .map((w) => ({
           ...w,
-          isLocal: isLocalWorker(w.hostInfo?.hostname, localHostname),
+          isLocal: isLocalWorker(w.hostInfo?.hostname, LOCAL_HOSTNAME),
         }))
         .sort((a, b) => {
           // Local first
@@ -54,7 +54,7 @@ export function useWorkers(dispatch: React.Dispatch<AppAction>) {
     } catch {
       setMasterReachable(false);
     }
-  }, [dispatch, localHostname]);
+  }, [dispatch]);
 
   const refresh = useCallback(async () => {
     await fetchWorkers();

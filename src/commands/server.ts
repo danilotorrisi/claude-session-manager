@@ -1,18 +1,11 @@
-import { homedir } from "os";
-import { join } from "path";
 import { startApiServer } from "../api/server";
 import { WorkerAgent } from "../worker/worker-agent";
-import { generateWorkerId } from "./worker";
-import type { WorkerConfig } from "../worker/types";
+import { buildWorkerConfig } from "./worker";
 
 async function startColocatedWorker(masterPort: number): Promise<WorkerAgent> {
-  const config: WorkerConfig = {
-    workerId: process.env.CSM_WORKER_ID || generateWorkerId(),
+  const config = buildWorkerConfig({
     masterUrl: `http://localhost:${masterPort}`,
-    stateFile: join(homedir(), ".config/csm-worker/state.json"),
-    pollInterval: 10000,
-    heartbeatInterval: 30000,
-  };
+  });
 
   const agent = new WorkerAgent(config);
   await agent.start();
