@@ -158,29 +158,52 @@ export async function deleteProject(name: string): Promise<void> {
   await saveConfig(config);
 }
 
+const HOSTS_DEPRECATION_MSG =
+  "[Deprecated] Static host configuration (config.hosts) is deprecated. " +
+  "Use `csm worker start` on remote machines instead. " +
+  "Workers register automatically with the master server.";
+
+let hostsDeprecationWarned = false;
+
+/**
+ * Log a deprecation warning if config.hosts has entries.
+ * Only warns once per process to avoid spam.
+ */
+export function warnHostsDeprecation(hosts: Record<string, HostConfig>): void {
+  if (hostsDeprecationWarned) return;
+  if (Object.keys(hosts).length > 0) {
+    hostsDeprecationWarned = true;
+    console.warn(HOSTS_DEPRECATION_MSG);
+  }
+}
+
 export async function getHosts(): Promise<Record<string, HostConfig>> {
   const config = await loadConfig();
   return config.hosts;
 }
 
+/** @deprecated Use `csm worker start` on remote machines instead. */
 export async function addHost(name: string, hostConfig: HostConfig): Promise<void> {
   const config = await loadConfig();
   config.hosts[name] = hostConfig;
   await saveConfig(config);
 }
 
+/** @deprecated Use `csm worker start` on remote machines instead. */
 export async function updateHost(name: string, hostConfig: HostConfig): Promise<void> {
   const config = await loadConfig();
   config.hosts[name] = hostConfig;
   await saveConfig(config);
 }
 
+/** @deprecated Use `csm worker start` on remote machines instead. */
 export async function deleteHost(name: string): Promise<void> {
   const config = await loadConfig();
   delete config.hosts[name];
   await saveConfig(config);
 }
 
+/** @deprecated Use `csm worker start` on remote machines instead. */
 export async function renameHost(oldName: string, newName: string): Promise<void> {
   const config = await loadConfig();
   const hostConfig = config.hosts[oldName];

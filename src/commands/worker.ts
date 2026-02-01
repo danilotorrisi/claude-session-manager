@@ -1,21 +1,27 @@
-import { homedir } from "os";
+import { homedir, hostname } from "os";
 import { join } from "path";
 import { WorkerAgent } from "../worker/worker-agent";
 import type { WorkerConfig } from "../worker/types";
 
-const DEFAULT_CONFIG: WorkerConfig = {
-  workerId: "mac-mini",
-  masterUrl: process.env.CSM_MASTER_URL, // Optional
-  stateFile: join(homedir(), ".config/csm-worker/state.json"),
-  pollInterval: 10000, // 10s
-  heartbeatInterval: 30000, // 30s
-};
+export function generateWorkerId(): string {
+  const host = hostname().replace(/\.local$/, "").toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  return host || "worker";
+}
+
+export function buildWorkerConfig(overrides?: Partial<WorkerConfig>): WorkerConfig {
+  const workerId = overrides?.workerId || process.env.CSM_WORKER_ID || generateWorkerId();
+  return {
+    workerId,
+    masterUrl: process.env.CSM_MASTER_URL,
+    stateFile: join(homedir(), `.config/csm-worker/state-${workerId}.json`),
+    pollInterval: 10000,
+    heartbeatInterval: 30000,
+    ...overrides,
+  };
+}
 
 export async function startWorker(): Promise<void> {
-  const config: WorkerConfig = {
-    ...DEFAULT_CONFIG,
-    workerId: process.env.CSM_WORKER_ID || DEFAULT_CONFIG.workerId,
-  };
+  const config = buildWorkerConfig();
 
   const agent = new WorkerAgent(config);
 
@@ -59,11 +65,7 @@ export async function startWorker(): Promise<void> {
 }
 
 export async function statusWorker(): Promise<void> {
-  const config: WorkerConfig = {
-    ...DEFAULT_CONFIG,
-    workerId: process.env.CSM_WORKER_ID || DEFAULT_CONFIG.workerId,
-  };
-
+  const config = buildWorkerConfig();
   const agent = new WorkerAgent(config);
   const sessions = agent.getSessions();
 
@@ -96,11 +98,7 @@ export async function statusWorker(): Promise<void> {
 }
 
 export async function syncWorker(): Promise<void> {
-  const config: WorkerConfig = {
-    ...DEFAULT_CONFIG,
-    workerId: process.env.CSM_WORKER_ID || DEFAULT_CONFIG.workerId,
-  };
-
+  const config = buildWorkerConfig();
   const agent = new WorkerAgent(config);
 
   console.log("Syncing state with master...");
@@ -115,11 +113,7 @@ export async function syncWorker(): Promise<void> {
 }
 
 export async function pollWorker(): Promise<void> {
-  const config: WorkerConfig = {
-    ...DEFAULT_CONFIG,
-    workerId: process.env.CSM_WORKER_ID || DEFAULT_CONFIG.workerId,
-  };
-
+  const config = buildWorkerConfig();
   const agent = new WorkerAgent(config);
 
   console.log(`[Poll] Starting single poll for worker ${config.workerId}...`);

@@ -1,4 +1,5 @@
 import type { Session, Project, LinearIssue, HostConfig } from "../types";
+import type { WorkerHostInfo } from "../worker/types";
 
 export type Tab = "sessions" | "projects" | "hosts" | "tasks" | "config";
 export type View = "dashboard" | "create" | "detail" | "projects";
@@ -11,6 +12,21 @@ export interface HostStatusInfo {
   uptime?: string;
   ramUsage?: string;
   lastChecked?: number;
+}
+
+/** Worker as returned by GET /api/workers */
+export interface RegisteredWorker {
+  id: string;
+  status: "online" | "stale" | "offline";
+  lastHeartbeat: string;
+  registeredAt: string;
+  sessionCount: number;
+  hostInfo?: WorkerHostInfo;
+}
+
+/** Worker enriched with client-side isLocal flag for display */
+export interface WorkerDisplayInfo extends RegisteredWorker {
+  isLocal: boolean;
 }
 
 const tabOrder: Tab[] = ["sessions", "projects", "hosts", "tasks", "config"];
@@ -29,6 +45,8 @@ export interface AppState {
   message: string | null;
   activeTab: Tab;
   projects: Project[];
+  workers: WorkerDisplayInfo[];
+  // Deprecated — kept for backward compat with csm create --host
   hosts: Record<string, HostConfig>;
   hostStatus: Record<string, HostStatusInfo>;
   tasks: LinearIssue[];
@@ -45,6 +63,7 @@ export type AppAction =
   | { type: "CLEAR_MESSAGE" }
   | { type: "SET_TAB"; tab: Tab }
   | { type: "SET_PROJECTS"; projects: Project[] }
+  | { type: "SET_WORKERS"; workers: WorkerDisplayInfo[] }
   | { type: "SET_HOSTS"; hosts: Record<string, HostConfig> }
   | { type: "SET_HOST_STATUS"; name: string; statusInfo: HostStatusInfo }
   | { type: "SET_TASKS"; tasks: LinearIssue[] }
@@ -59,6 +78,7 @@ export const initialState: AppState = {
   message: null,
   activeTab: "sessions",
   projects: [],
+  workers: [],
   hosts: {},
   hostStatus: {},
   tasks: [],
@@ -85,6 +105,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, activeTab: action.tab };
     case "SET_PROJECTS":
       return { ...state, projects: action.projects };
+    case "SET_WORKERS":
+      return { ...state, workers: action.workers };
     case "SET_HOSTS":
       return { ...state, hosts: action.hosts };
     case "SET_HOST_STATUS":
