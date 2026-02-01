@@ -2,6 +2,19 @@
 
 All notable changes to Claude Session Manager (CSM) are documented here.
 
+## 1.3.0
+
+### Added
+- **Dynamic worker registration** — workers register with master API server, deprecating static host configuration
+- **Co-located worker mode** — master server automatically starts a local worker for managing sessions on the same machine
+- **Committed changes tracking** — Git Changes panel now shows both uncommitted and committed files in separate sections
+- **Source-aware diff viewing** — uncommitted files diff against HEAD, committed files diff against main
+- **Master/worker architecture** — new worker agent system for distributed session management across multiple machines
+
+### Fixed
+- **Clean git status in worktrees** — `.csm-metadata.json` and `.claude/` now ignored, `CLAUDE.md` uses `skip-worktree` to prevent false changes
+- **Metadata file tracking** — CSM-injected files no longer pollute git status
+
 ## 1.2.0
 
 ### Added
