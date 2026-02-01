@@ -1,7 +1,9 @@
+import { hostname, cpus, arch } from "os";
 import { StateManager } from "./state-manager";
 import { MasterClient } from "./master-client";
 import { listSessions } from "../lib/tmux";
-import type { WorkerConfig, WorkerEvent } from "./types";
+import { getLocalHostInfo } from "../lib/ssh";
+import type { WorkerConfig, WorkerEvent, WorkerHostInfo } from "./types";
 import type { Session } from "../types";
 
 export class WorkerAgent {
@@ -11,11 +13,34 @@ export class WorkerAgent {
   private pollTimer: Timer | null = null;
   private heartbeatTimer: Timer | null = null;
   private running = false;
+  private cachedHostInfo: WorkerHostInfo | null = null;
 
   constructor(config: WorkerConfig) {
     this.config = config;
     this.stateManager = new StateManager(config.stateFile, config.workerId);
     this.masterClient = new MasterClient(config.masterUrl);
+  }
+
+  async gatherHostInfo(): Promise<WorkerHostInfo> {
+    try {
+      const info = await getLocalHostInfo();
+      return {
+        hostname: hostname(),
+        os: info.os,
+        uptime: info.uptime,
+        ramUsage: info.ramUsage,
+        arch: arch(),
+        cpuCount: cpus().length,
+      };
+    } catch {
+      return {
+        hostname: hostname(),
+        os: process.platform,
+        uptime: "",
+        arch: arch(),
+        cpuCount: cpus().length,
+      };
+    }
   }
 
   async start(): Promise<void> {
@@ -26,6 +51,18 @@ export class WorkerAgent {
 
     this.running = true;
     console.log(`Worker agent started (ID: ${this.config.workerId})`);
+
+    // Gather host info and send registration
+    this.cachedHostInfo = await this.gatherHostInfo();
+    await this.pushEvent({
+      type: "worker_registered",
+      timestamp: new Date().toISOString(),
+      workerId: this.config.workerId,
+      data: {
+        hostInfo: this.cachedHostInfo,
+        sessionCount: this.stateManager.getSessions().length,
+      },
+    });
 
     // Initial sync
     await this.pollSessions();
@@ -58,6 +95,13 @@ export class WorkerAgent {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
+
+    // Send deregistration event
+    await this.pushEvent({
+      type: "worker_deregistered",
+      timestamp: new Date().toISOString(),
+      workerId: this.config.workerId,
+    });
 
     console.log("Worker agent stopped");
   }
@@ -147,12 +191,16 @@ export class WorkerAgent {
   private async sendHeartbeat(): Promise<void> {
     this.stateManager.updateHeartbeat();
 
+    // Refresh host info periodically (uptime, RAM change)
+    this.cachedHostInfo = await this.gatherHostInfo();
+
     await this.pushEvent({
       type: "heartbeat",
       timestamp: new Date().toISOString(),
       workerId: this.config.workerId,
       data: {
         sessionCount: this.stateManager.getSessions().length,
+        hostInfo: this.cachedHostInfo,
       },
     });
   }

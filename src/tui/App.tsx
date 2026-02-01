@@ -12,6 +12,7 @@ import { Config } from "./views/Config";
 import { useSessions } from "./hooks/useSessions";
 import { useProjects } from "./hooks/useProjects";
 import { useHosts } from "./hooks/useHosts";
+import { useWorkers } from "./hooks/useWorkers";
 import { useLinearTasks } from "./hooks/useLinearTasks";
 import { useReportPoller } from "./hooks/useReportPoller";
 import { initialState, appReducer } from "./types";
@@ -37,6 +38,7 @@ export function App({ restoredState }: { restoredState?: AppState }) {
   const { refresh } = useSessions(dispatch);
   const { reload: reloadProjects } = useProjects(dispatch);
   const { reload: reloadHosts, checkHost, refreshStatus: refreshHostStatus } = useHosts(dispatch);
+  const { refresh: refreshWorkers, masterReachable } = useWorkers(dispatch);
   const { refresh: refreshTasks, loadMore: loadMoreTasks, paginationRef } = useLinearTasks(dispatch);
   useReportPoller(state.sessions);
   const { stdout } = useStdout();
@@ -96,9 +98,8 @@ export function App({ restoredState }: { restoredState?: AppState }) {
             <Hosts
               state={state}
               dispatch={dispatch}
-              onReload={reloadHosts}
-              onCheckHost={checkHost}
-              onRefreshStatus={refreshHostStatus}
+              onRefresh={refreshWorkers}
+              masterReachable={masterReachable}
             />
           ) : state.activeTab === "tasks" ? (
             <Tasks

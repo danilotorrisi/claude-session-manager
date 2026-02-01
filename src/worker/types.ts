@@ -1,6 +1,8 @@
 import type { Session, GitStats, LinearIssue } from "../types";
 
 export type WorkerEventType =
+  | "worker_registered"
+  | "worker_deregistered"
   | "session_created"
   | "session_attached"
   | "session_detached"
@@ -9,12 +11,24 @@ export type WorkerEventType =
   | "git_changes"
   | "heartbeat";
 
+export interface WorkerHostInfo {
+  hostname: string;   // os.hostname() — used by TUI for "local" matching
+  os: string;         // "macOS 15.3", "Ubuntu 24.04"
+  uptime: string;     // "up 5 days", "up 2h 30m"
+  ramUsage?: string;  // "12.4/32.0 GB"
+  arch: string;       // "arm64", "x86_64"
+  cpuCount: number;
+}
+
 export interface WorkerEvent {
   type: WorkerEventType;
   timestamp: string;
   workerId: string;
   sessionName?: string;
   data?: {
+    // worker_registered / heartbeat
+    hostInfo?: WorkerHostInfo;
+
     // session_created
     worktreePath?: string;
     projectName?: string;

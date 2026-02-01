@@ -1,15 +1,22 @@
 import type { Server } from "bun";
-import type { WorkerEvent } from "../worker/types";
+import type { WorkerEvent, WorkerHostInfo } from "../worker/types";
 
 // In-memory storage for demo (in production, use a DB)
+interface WorkerInfo {
+  lastHeartbeat: string;
+  sessionCount: number;
+  hostInfo?: WorkerHostInfo;
+  registeredAt: string;
+}
+
 interface MasterState {
-  workers: Map<string, {
-    lastHeartbeat: string;
-    sessionCount: number;
-  }>;
+  workers: Map<string, WorkerInfo>;
   events: WorkerEvent[];
   sessions: Map<string, any>; // workerId:sessionName -> session data
 }
+
+const HEARTBEAT_ONLINE_THRESHOLD = 60_000;  // 60s
+const HEARTBEAT_STALE_THRESHOLD = 120_000;  // 120s
 
 const state: MasterState = {
   workers: new Map(),
@@ -17,15 +24,45 @@ const state: MasterState = {
   sessions: new Map(),
 };
 
-function handleWorkerEvent(event: WorkerEvent): Response {
-  // Store event
-  state.events.push(event);
+/** Reset in-memory state — for testing only. */
+export function resetMasterState(): void {
+  state.workers.clear();
+  state.events.length = 0;
+  state.sessions.clear();
+}
 
-  // Update worker info
-  if (event.type === "heartbeat") {
+export function handleWorkerEvent(event: WorkerEvent): Response {
+  // Store event (cap at 1000 events)
+  state.events.push(event);
+  if (state.events.length > 1000) {
+    state.events = state.events.slice(-1000);
+  }
+
+  // Handle worker registration/deregistration
+  if (event.type === "worker_registered") {
+    const existing = state.workers.get(event.workerId);
     state.workers.set(event.workerId, {
       lastHeartbeat: event.timestamp,
       sessionCount: event.data?.sessionCount || 0,
+      hostInfo: event.data?.hostInfo,
+      registeredAt: existing?.registeredAt || event.timestamp,
+    });
+  } else if (event.type === "worker_deregistered") {
+    // Keep the worker entry but clear heartbeat so it appears offline
+    const existing = state.workers.get(event.workerId);
+    if (existing) {
+      existing.lastHeartbeat = ""; // will appear offline
+    }
+  }
+
+  // Update worker info on heartbeat
+  if (event.type === "heartbeat") {
+    const existing = state.workers.get(event.workerId);
+    state.workers.set(event.workerId, {
+      lastHeartbeat: event.timestamp,
+      sessionCount: event.data?.sessionCount || 0,
+      hostInfo: event.data?.hostInfo || existing?.hostInfo,
+      registeredAt: existing?.registeredAt || event.timestamp,
     });
   }
 
@@ -48,7 +85,7 @@ function handleWorkerEvent(event: WorkerEvent): Response {
         break;
 
       case "claude_state_changed":
-      case "git_changes":
+      case "git_changes": {
         const existing = state.sessions.get(key);
         if (existing) {
           state.sessions.set(key, {
@@ -58,6 +95,7 @@ function handleWorkerEvent(event: WorkerEvent): Response {
           });
         }
         break;
+      }
     }
   }
 
@@ -88,6 +126,33 @@ function handleHealth(): Response {
       sessions: state.sessions.size,
       events: state.events.length,
     }),
+    {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }
+  );
+}
+
+export function deriveWorkerStatus(lastHeartbeat: string): "online" | "stale" | "offline" {
+  if (!lastHeartbeat) return "offline";
+  const age = Date.now() - new Date(lastHeartbeat).getTime();
+  if (age < HEARTBEAT_ONLINE_THRESHOLD) return "online";
+  if (age < HEARTBEAT_STALE_THRESHOLD) return "stale";
+  return "offline";
+}
+
+export function handleGetWorkers(): Response {
+  const workers = Array.from(state.workers.entries()).map(([id, info]) => ({
+    id,
+    status: deriveWorkerStatus(info.lastHeartbeat),
+    lastHeartbeat: info.lastHeartbeat,
+    registeredAt: info.registeredAt,
+    sessionCount: info.sessionCount,
+    hostInfo: info.hostInfo,
+  }));
+
+  return new Response(
+    JSON.stringify({ workers }),
     {
       status: 200,
       headers: { "Content-Type": "application/json" },
@@ -172,6 +237,15 @@ export async function startApiServer(port: number = 3000): Promise<Server> {
         }
       }
 
+      // List registered workers
+      if (url.pathname === "/api/workers" && req.method === "GET") {
+        const response = handleGetWorkers();
+        Object.entries(headers).forEach(([key, value]) => {
+          response.headers.set(key, value);
+        });
+        return response;
+      }
+
       // Get current state (for debugging)
       if (url.pathname === "/api/state" && req.method === "GET") {
         const response = handleGetState();
@@ -187,6 +261,7 @@ export async function startApiServer(port: number = 3000): Promise<Server> {
 
   console.log(`[Master] API server listening on http://localhost:${port}`);
   console.log(`[Master] Health: http://localhost:${port}/api/health`);
+  console.log(`[Master] Workers: http://localhost:${port}/api/workers`);
   console.log(`[Master] State: http://localhost:${port}/api/state`);
 
   return server;

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback } from "react";
-import { getHosts } from "../../lib/config";
+import { getHosts, warnHostsDeprecation } from "../../lib/config";
 import { testConnection, getHostInfo, getLocalHostInfo } from "../../lib/ssh";
 import type { AppAction, HostStatusInfo } from "../types";
 
@@ -31,6 +31,7 @@ export function useHosts(dispatch: React.Dispatch<AppAction>) {
 
   const reload = useCallback(async () => {
     const hosts = await getHosts();
+    warnHostsDeprecation(hosts);
     dispatch({ type: "SET_HOSTS", hosts });
     return hosts;
   }, [dispatch]);

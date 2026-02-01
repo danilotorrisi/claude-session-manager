@@ -28,13 +28,14 @@ COMMANDS:
   rename <old> <new>  Rename a session
   hosts            List configured remote hosts
   worker [cmd]     Worker agent commands (start|status|sync)
-  server           Start Master API server (receives worker events)
+  server           Start Master API server + co-located worker
   help             Show this help message
 
 OPTIONS:
   --repo <path>    Repository path (for create)
   --host <name>    Remote host name (from config)
   --delete-branch  Delete the worktree branch (for kill)
+  --no-worker      Don't auto-start co-located worker (for server)
 
 EXAMPLES:
   csm                                    # Launch TUI
@@ -205,7 +206,9 @@ async function main(): Promise<void> {
 
       case "server":
         const serverPort = options.port ? parseInt(options.port as string, 10) : undefined;
-        await startServer(serverPort);
+        await startServer(serverPort, {
+          noWorker: options["no-worker"] === true,
+        });
         break;
 
       case "help":
