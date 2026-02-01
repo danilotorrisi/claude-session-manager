@@ -37,11 +37,6 @@ const keyHints: Record<string, KeyHint[]> = {
   ],
   hosts: [
     { key: "↑↓", label: "navigate" },
-    { key: "c", label: "create" },
-    { key: "e", label: "edit" },
-    { key: "d", label: "delete" },
-    { key: "t", label: "test" },
-    { key: "i", label: "install hooks" },
     { key: "r", label: "refresh" },
     { key: "tab", label: "switch tab" },
     { key: "q", label: "quit" },
