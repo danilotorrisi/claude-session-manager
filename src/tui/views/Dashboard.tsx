@@ -8,7 +8,7 @@ import { GitChangesPanel } from "../components/GitChangesPanel";
 import type { Session, GitStats, LinearIssue, Project } from "../../types";
 import type { AppState, AppAction } from "../types";
 import { nextTab } from "../types";
-import { killSession, getSessionName, sendToSession, getDetailedGitStats, getFileDiff, renameSession, writeClaudeContext } from "../../lib/tmux";
+import { killSession, getSessionName, sendToSession, getDetailedGitStats, getFileDiff, getCommittedFileDiff, renameSession, writeClaudeContext } from "../../lib/tmux";
 import { removeWorktree, loadSessionMetadata, deleteBranch, checkWorktreeClean, squashMergeToMain, generateCommitMessage, getWorktreePath, updateSessionProject, updateSessionTask } from "../../lib/worktree";
 import { exec as cpExec } from "child_process";
 import { exec as sshExec } from "../../lib/ssh";
@@ -523,7 +523,8 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
     setLoadingDiff(true);
     setDiffLines([]);
     setDiffScrollOffset(0);
-    getFileDiff(previewSession.worktreePath, file.file, previewSession.host)
+    const diffFn = file.source === "committed" ? getCommittedFileDiff : getFileDiff;
+    diffFn(previewSession.worktreePath, file.file, previewSession.host)
       .then((lines) => {
         setDiffLines(lines);
         setLoadingDiff(false);
