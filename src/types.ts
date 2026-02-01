@@ -62,6 +62,7 @@ export interface GitFileChange {
   insertions: number;
   deletions: number;
   status: 'modified' | 'added' | 'deleted' | 'renamed';
+  source?: 'uncommitted' | 'committed';
 }
 
 export interface FeedbackReport {
