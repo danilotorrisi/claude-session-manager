@@ -171,20 +171,31 @@ export async function getDetailedGitStats(worktreePath: string, hostName?: strin
     // Add untracked files (status "??")
     for (const [file, flag] of statusMap) {
       if (flag === "??" && !trackedFiles.has(file)) {
-        fileChanges.push({ file, insertions: 0, deletions: 0, status: "added" });
+        fileChanges.push({ file, insertions: 0, deletions: 0, status: "added", source: "uncommitted" });
       }
     }
 
-    if (fileChanges.length === 0) return undefined;
+    // Tag all uncommitted changes
+    for (const fc of fileChanges) {
+      fc.source = "uncommitted";
+    }
 
-    const totalInsertions = fileChanges.reduce((s, f) => s + f.insertions, 0);
-    const totalDeletions = fileChanges.reduce((s, f) => s + f.deletions, 0);
+    // Fetch committed changes in parallel
+    const committedChanges = await getCommittedChanges(worktreePath, hostName);
+
+    // Merge both lists
+    const allChanges = [...fileChanges, ...committedChanges];
+
+    if (allChanges.length === 0) return undefined;
+
+    const totalInsertions = allChanges.reduce((s, f) => s + f.insertions, 0);
+    const totalDeletions = allChanges.reduce((s, f) => s + f.deletions, 0);
 
     return {
-      filesChanged: fileChanges.length,
+      filesChanged: allChanges.length,
       insertions: totalInsertions,
       deletions: totalDeletions,
-      fileChanges,
+      fileChanges: allChanges,
     };
   } catch {
     return undefined;
@@ -208,6 +219,65 @@ export async function getFileDiff(worktreePath: string, filePath: string, hostNa
     );
     if (untrackedResult.stdout?.trim()) {
       return untrackedResult.stdout.split("\n");
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+async function getCommittedChanges(worktreePath: string, hostName?: string): Promise<GitFileChange[]> {
+  try {
+    const [numstatResult, statusResult] = await Promise.all([
+      exec(`git -C "${worktreePath}" diff main...HEAD --numstat 2>/dev/null`, hostName),
+      exec(`git -C "${worktreePath}" diff main...HEAD --name-status 2>/dev/null`, hostName),
+    ]);
+
+    // Parse name-status for file statuses
+    const statusMap = new Map<string, string>();
+    if (statusResult.stdout) {
+      for (const line of statusResult.stdout.split("\n").filter(Boolean)) {
+        const parts = line.split("\t");
+        if (parts.length < 2) continue;
+        const flag = parts[0];
+        const file = parts[parts.length - 1]; // last part handles renames
+        statusMap.set(file, flag);
+      }
+    }
+
+    const fileChanges: GitFileChange[] = [];
+    if (numstatResult.stdout) {
+      for (const line of numstatResult.stdout.split("\n").filter(Boolean)) {
+        const parts = line.split("\t");
+        if (parts.length < 3) continue;
+        const [ins, del, file] = parts;
+        const insertions = ins === "-" ? 0 : parseInt(ins, 10);
+        const deletions = del === "-" ? 0 : parseInt(del, 10);
+
+        const flag = statusMap.get(file) || "M";
+        let status: GitFileChange["status"] = "modified";
+        if (flag === "A") status = "added";
+        else if (flag === "D") status = "deleted";
+        else if (flag.startsWith("R")) status = "renamed";
+
+        fileChanges.push({ file, insertions, deletions, status, source: "committed" });
+      }
+    }
+
+    return fileChanges;
+  } catch {
+    return [];
+  }
+}
+
+export async function getCommittedFileDiff(worktreePath: string, filePath: string, hostName?: string): Promise<string[]> {
+  try {
+    const result = await exec(
+      `git -C "${worktreePath}" diff main...HEAD -- "${filePath}" 2>/dev/null`,
+      hostName
+    );
+    if (result.stdout?.trim()) {
+      return result.stdout.split("\n");
     }
     return [];
   } catch {
