@@ -471,6 +471,9 @@ export async function createSession(
   // Write .claude/settings.json with permissions and safety hooks (merges with existing)
   await writeClaudeSettings(workingDir, hostName);
 
+  // Tell git to ignore local modifications to CLAUDE.md in this worktree
+  await exec(`cd "${workingDir}" && git update-index --skip-worktree CLAUDE.md`, hostName);
+
   // Write inline setup script from project config if present
   if (project?.setupScript) {
     const escaped = project.setupScript.replace(/'/g, "'\\''");
