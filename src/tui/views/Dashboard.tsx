@@ -15,7 +15,7 @@ import { exec as sshExec } from "../../lib/ssh";
 import { getDefaultRepo, saveArchivedSession, getLinearApiKey, getProjects } from "../../lib/config";
 import { searchIssues } from "../../lib/linear";
 import { cleanupStateFile } from "../../lib/claude-state";
-import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal, exitTuiAndAttachPM, exitTuiAndAttachRemote, exitTuiAndAttachRemoteTerminal } from "../index";
+import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal, exitTuiAndAttachPM, exitTuiAndAttachRemote, exitTuiAndAttachRemoteTerminal, exitTuiAndAttachRemotePM } from "../index";
 import { colors } from "../theme";
 import { readFileSync, readdirSync, unlinkSync } from "fs";
 
@@ -193,14 +193,8 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   }, []);
 
   const handleAttachPM = useCallback(async (session: Session) => {
-    // Check if PM window exists (only for local sessions)
-    if (session.host) {
-      dispatch({ type: "SET_ERROR", error: "PM attach not yet supported for remote sessions" });
-      return;
-    }
-
     const { sessionPMExists } = await import("../../lib/session-pm");
-    const hasPM = await sessionPMExists(session.name);
+    const hasPM = await sessionPMExists(session.name, session.host);
     
     if (!hasPM) {
       dispatch({ type: "SET_ERROR", error: `Session "${session.name}" has no PM window` });
@@ -208,7 +202,12 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
     }
 
     const tmuxSessionName = getSessionName(session.name);
-    await exitTuiAndAttachPM(tmuxSessionName);
+    
+    if (session.host) {
+      await exitTuiAndAttachRemotePM(tmuxSessionName, session.host);
+    } else {
+      await exitTuiAndAttachPM(tmuxSessionName);
+    }
   }, [dispatch]);
 
   const handleKill = useCallback(async (session: Session) => {
