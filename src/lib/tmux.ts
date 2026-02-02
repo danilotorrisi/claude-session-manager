@@ -370,8 +370,20 @@ export async function writeClaudeContext(
     lines.push("", FEEDBACK_PROTOCOL);
   }
 
-  const content = lines.join("\n");
-  const escaped = content.replace(/'/g, "'\\''");
+  // Check if CLAUDE.md already exists in the worktree (from the repo)
+  const checkExisting = await exec(`test -f "${workingDir}/CLAUDE.md" && cat "${workingDir}/CLAUDE.md"`, hostName);
+  
+  let finalContent: string;
+  if (checkExisting.success && checkExisting.stdout.trim()) {
+    // CLAUDE.md exists in repo - append our content
+    const separator = "\n\n---\n\n# CSM Session Context\n\n";
+    finalContent = checkExisting.stdout.trim() + separator + lines.join("\n");
+  } else {
+    // No existing CLAUDE.md - create new one with our content
+    finalContent = lines.join("\n");
+  }
+
+  const escaped = finalContent.replace(/'/g, "'\\''");
   await exec(`echo '${escaped}' > "${workingDir}/CLAUDE.md"`, hostName);
 }
 
