@@ -142,12 +142,13 @@ async function main(): Promise<void> {
       case "create":
         if (!name) {
           console.error("Error: Session name required");
-          console.error("Usage: csm create <name> [--repo <path>] [--host <remote>]");
+          console.error("Usage: csm create <name> [--repo <path>] [--host <remote>] [--project <name>]");
           process.exit(1);
         }
         await create(name, {
           repo: options.repo as string | undefined,
           host: options.host as string | undefined,
+          project: options.project as string | undefined,
         });
         break;
 

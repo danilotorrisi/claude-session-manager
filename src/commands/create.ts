@@ -26,7 +26,7 @@ async function promptYesNo(question: string): Promise<boolean> {
 }
 
 export async function create(name: string, options: CreateOptions): Promise<void> {
-  const { repo, host } = options;
+  const { repo, host, project } = options;
 
   // Validate session name
   if (!/^[a-zA-Z0-9_-]+$/.test(name)) {
@@ -52,7 +52,7 @@ export async function create(name: string, options: CreateOptions): Promise<void
 
   // Create git worktree
   console.log(`  Creating git worktree...`);
-  let worktreeResult = await createWorktree(name, repoPath, host);
+  let worktreeResult = await createWorktree(name, repoPath, host, undefined, project);
 
   // Handle worktree conflict errors
   if (!worktreeResult.success && isWorktreeConflictError(worktreeResult.stderr)) {
@@ -63,10 +63,10 @@ export async function create(name: string, options: CreateOptions): Promise<void
 
     if (shouldClean) {
       console.log(`\n  Cleaning up stale worktree...`);
-      await cleanupStaleWorktree(name, repoPath, host);
+      await cleanupStaleWorktree(name, repoPath, host, project);
 
       console.log(`  Retrying worktree creation...`);
-      worktreeResult = await createWorktree(name, repoPath, host);
+      worktreeResult = await createWorktree(name, repoPath, host, undefined, project);
     } else {
       console.log("\nAborted.");
       process.exit(1);
@@ -78,7 +78,7 @@ export async function create(name: string, options: CreateOptions): Promise<void
     process.exit(1);
   }
 
-  const worktreePath = await getWorktreePath(name);
+  const worktreePath = await getWorktreePath(name, project);
   console.log(`  Worktree created at: ${worktreePath}`);
 
   // Create tmux session with Claude
