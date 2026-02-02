@@ -33,7 +33,7 @@
 import { readFileSync } from "fs";
 import { join } from "path";
 import { exec } from "./ssh";
-import { getSessionName } from "./tmux";
+import { getSessionName, autoAcceptClaudeTrust } from "./tmux";
 
 const SESSION_PM_TEMPLATE_PATH = join(import.meta.dir, "../../templates/session-pm-claude.md");
 
@@ -163,6 +163,9 @@ export async function startSessionPM(
 
   // Launch claude in the pm window
   await exec(`tmux send-keys -t ${tmuxSession}:pm 'claude' Enter`);
+
+  // Auto-accept trust dialog for PM window
+  autoAcceptClaudeTrust(sessionName, 'pm');
 }
 
 /**
