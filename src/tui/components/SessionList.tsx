@@ -222,8 +222,8 @@ export function SessionList({
               {session.gitStats ? (
                 <Text backgroundColor={rowBg}>
                   <Text color={colors.muted}>{session.gitStats.filesChanged} 📄 </Text>
-                  <Text color={colors.success}>+{session.gitStats.insertions} </Text>
-                  <Text color={colors.danger}>-{session.gitStats.deletions}</Text>
+                  <Text color={colors.success}>+{formatNumber(session.gitStats.insertions)} </Text>
+                  <Text color={colors.danger}>-{formatNumber(session.gitStats.deletions)}</Text>
                 </Text>
               ) : (
                 <Text color={colors.mutedDark} dimColor backgroundColor={rowBg}>{"-"}</Text>
@@ -258,4 +258,14 @@ function formatRelativeTime(isoString: string): string {
   if (diffHours < 24) return `${diffHours}h ago`;
   if (diffDays < 7) return `${diffDays}d ago`;
   return date.toLocaleDateString();
+}
+
+function formatNumber(num: number): string {
+  if (num >= 1000000) {
+    return `${(num / 1000000).toFixed(1)}M`.replace(".0", "");
+  }
+  if (num >= 1000) {
+    return `${(num / 1000).toFixed(1)}K`.replace(".0", "");
+  }
+  return num.toString();
 }
