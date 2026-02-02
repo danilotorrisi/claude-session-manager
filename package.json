@@ -20,7 +20,7 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.978.0",
+    "@aws-sdk/client-s3": "^3.980.0",
     "ink": "^6.6.0",
     "ink-select-input": "^6.2.0",
     "ink-spinner": "^5.0.0",

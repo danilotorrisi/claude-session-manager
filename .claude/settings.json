@@ -66,7 +66,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'INPUT=$(cat); if echo \"$INPUT\" | grep -qiE \"(staging|stg|prod|production|database|db|migrate|seed|DROP|DELETE FROM|UPDATE .* SET|INSERT INTO|psql|mysql|mongosh|prisma db push|prisma migrate)\"; then echo \"BLOCK: This command appears to touch a staging/production environment or database. Please confirm.\"; exit 2; fi'"
+            "command": "bash -c 'INPUT=$(cat); if echo \"$INPUT\" | grep -qE \"^(git|docker)\"; then exit 0; fi; if echo \"$INPUT\" | grep -qiE \"(DROP TABLE|DROP DATABASE|DELETE FROM|TRUNCATE|UPDATE .* SET|ALTER TABLE|psql.*-c|mysql.*-e|mongosh.*--eval)\"; then echo \"BLOCK: Dangerous SQL/database command detected.\"; exit 2; fi; if echo \"$INPUT\" | grep -qiE \"(ssh.*(staging|prod|production)|deploy.*(staging|prod))\"; then echo \"BLOCK: Production/staging deployment detected.\"; exit 2; fi'"
           }
         ]
       }
