@@ -19,6 +19,7 @@ const keyHints: Record<string, KeyHint[]> = {
     { key: "enter", label: "manage" },
     { key: "a", label: "attach" },
     { key: "t", label: "term" },
+    { key: "w", label: "pm" },
     { key: "c", label: "create" },
     { key: "k", label: "kill" },
     { key: "e", label: "edit" },
@@ -70,6 +71,7 @@ const keyHints: Record<string, KeyHint[]> = {
   detail: [
     { key: "a", label: "attach" },
     { key: "t", label: "terminal" },
+    { key: "w", label: "pm" },
     { key: "k", label: "kill" },
     { key: "esc", label: "back" },
     { key: "q", label: "quit" },
