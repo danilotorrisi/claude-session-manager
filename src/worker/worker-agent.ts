@@ -64,6 +64,9 @@ export class WorkerAgent {
       },
     });
 
+    // Discover pre-existing sessions before starting regular polling
+    await this.discoverExistingSessions();
+
     // Initial sync
     await this.pollSessions();
 
@@ -104,6 +107,38 @@ export class WorkerAgent {
     });
 
     console.log("Worker agent stopped");
+  }
+
+  private async discoverExistingSessions(): Promise<void> {
+    try {
+      const sessions = await listSessions();
+
+      if (sessions.length === 0) {
+        return;
+      }
+
+      console.log(`Discovered ${sessions.length} existing session(s)`);
+
+      for (const session of sessions) {
+        this.stateManager.updateSession(session);
+        await this.pushEvent({
+          type: "session_discovered",
+          timestamp: new Date().toISOString(),
+          workerId: this.config.workerId,
+          sessionName: session.name,
+          data: {
+            worktreePath: session.worktreePath,
+            projectName: session.projectName,
+            linearIssue: session.linearIssue,
+            claudeState: session.claudeState,
+            claudeLastMessage: session.claudeLastMessage,
+            gitStats: session.gitStats,
+          },
+        });
+      }
+    } catch (error) {
+      console.error("Failed to discover existing sessions:", error);
+    }
   }
 
   private async pollSessions(): Promise<void> {
