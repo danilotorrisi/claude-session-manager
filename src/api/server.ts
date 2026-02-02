@@ -72,18 +72,29 @@ export function handleWorkerEvent(event: WorkerEvent): Response {
     const key = `${event.workerId}:${event.sessionName}`;
 
     switch (event.type) {
-      case "session_created":
+      case "session_discovered":
+      case "session_created": {
         state.sessions.set(key, {
           workerId: event.workerId,
           sessionName: event.sessionName,
           created: event.timestamp,
           ...event.data,
         });
+        const worker = state.workers.get(event.workerId);
+        if (worker) {
+          worker.sessionCount = Array.from(state.sessions.keys()).filter(k => k.startsWith(event.workerId + ":")).length;
+        }
         break;
+      }
 
-      case "session_killed":
+      case "session_killed": {
         state.sessions.delete(key);
+        const worker = state.workers.get(event.workerId);
+        if (worker) {
+          worker.sessionCount = Array.from(state.sessions.keys()).filter(k => k.startsWith(event.workerId + ":")).length;
+        }
         break;
+      }
 
       case "claude_state_changed":
       case "git_changes": {
