@@ -3,9 +3,14 @@ import { generateBranchName, getWorktreePath } from "../lib/worktree";
 
 describe("worktree utilities", () => {
   describe("generateBranchName", () => {
-    test("generates branch name with csm/ prefix", () => {
+    test("generates branch name with csm/ prefix when no project", () => {
       const branchName = generateBranchName("my-feature");
       expect(branchName).toStartWith("csm/my-feature-");
+    });
+
+    test("generates branch name with project prefix when provided", () => {
+      const branchName = generateBranchName("my-feature", "mpower");
+      expect(branchName).toStartWith("mpower/my-feature-");
     });
 
     test("includes timestamp in branch name", () => {
