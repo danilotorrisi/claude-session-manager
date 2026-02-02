@@ -113,6 +113,15 @@ export class WorkerAgent {
     try {
       const sessions = await listSessions();
 
+      const discoveredNames = new Set(sessions.map((s) => s.name));
+
+      // Purge stale sessions from state file that no longer exist in tmux
+      for (const existing of this.stateManager.getSessions()) {
+        if (!discoveredNames.has(existing.name)) {
+          this.stateManager.removeSession(existing.name);
+        }
+      }
+
       if (sessions.length === 0) {
         return;
       }
