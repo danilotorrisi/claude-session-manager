@@ -1,5 +1,20 @@
 #!/usr/bin/env bun
 
+// Normalize working directory to canonical path with correct case.
+// macOS has a case-insensitive filesystem, and launchd or other launchers
+// may resolve the cwd with different case than the actual directory name.
+// Bun's module resolution can fail when the cwd case doesn't match, so we
+// fix it before any relative module resolution occurs.
+import { realpathSync } from "fs";
+try {
+  const canonicalCwd = realpathSync(process.cwd());
+  if (canonicalCwd !== process.cwd()) {
+    process.chdir(canonicalCwd);
+  }
+} catch {
+  // If realpathSync fails, continue with existing cwd
+}
+
 import { create } from "./commands/create";
 import { list } from "./commands/list";
 import { attach } from "./commands/attach";
