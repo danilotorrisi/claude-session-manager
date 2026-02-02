@@ -100,6 +100,7 @@ export interface CommandResult {
 export interface CreateOptions {
   repo?: string;
   host?: string;
+  project?: string;
 }
 
 export interface ListOptions {
