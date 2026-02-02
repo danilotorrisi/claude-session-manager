@@ -185,3 +185,37 @@ export async function pmAddToSession(sessionName: string | undefined): Promise<v
 
   console.log(`PM added to session '${sessionName}' (window :pm)`);
 }
+
+export async function pmAttach(sessionName: string | undefined): Promise<void> {
+  if (!sessionName) {
+    console.error("Error: Session name required");
+    console.error("Usage: csm pm attach <name>");
+    process.exit(1);
+  }
+
+  // Check session exists
+  if (!(await sessionExists(sessionName))) {
+    console.error(`Error: Session '${sessionName}' does not exist`);
+    process.exit(1);
+  }
+
+  // Check PM window exists
+  if (!(await sessionPMExists(sessionName))) {
+    console.error(`Error: Session '${sessionName}' does not have a PM window`);
+    console.error("Add one with: csm pm add-to-session " + sessionName);
+    process.exit(1);
+  }
+
+  // Attach to the PM window using execSync with stdio inheritance
+  const fullSessionName = `csm-${sessionName}`;
+  const { execSync } = await import("child_process");
+  
+  try {
+    execSync(`tmux attach-session -t ${fullSessionName}:pm`, {
+      stdio: "inherit",
+    });
+  } catch (error) {
+    console.error(`Error: Failed to attach to PM window`);
+    process.exit(1);
+  }
+}
