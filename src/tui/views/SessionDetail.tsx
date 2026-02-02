@@ -1,6 +1,7 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { Box, Text, useInput, useApp } from "ink";
 import Spinner from "ink-spinner";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import type { AppState, AppAction } from "../types";
 import { killSession, getSessionName } from "../../lib/tmux";
 import {
@@ -33,6 +34,7 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
   const [worktreePath, setWorktreePath] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [confirmKill, setConfirmKill] = useState(false);
+  const [showKillDialog, setShowKillDialog] = useState(false);
 
   useEffect(() => {
     if (session) {
@@ -83,12 +85,13 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
 
   const handleKill = useCallback(async () => {
     if (!session) return;
+    setShowKillDialog(true);
+  }, [session]);
 
-    if (!confirmKill) {
-      setConfirmKill(true);
-      return;
-    }
+  const executeKill = useCallback(async () => {
+    if (!session) return;
 
+    setShowKillDialog(false);
     setLoading(true);
 
     try {
@@ -117,9 +120,19 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
       });
       setLoading(false);
     }
-  }, [session, metadata, confirmKill, dispatch, onRefresh]);
+  }, [session, metadata, dispatch, onRefresh]);
 
   useInput((input, key) => {
+    // Handle kill confirmation dialog
+    if (showKillDialog) {
+      if (input === "y" || input === "Y") {
+        executeKill();
+      } else if (input === "n" || input === "N" || key.escape) {
+        setShowKillDialog(false);
+      }
+      return;
+    }
+
     if (key.escape) {
       if (confirmKill) {
         setConfirmKill(false);
@@ -163,6 +176,26 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
 
   const statusColor = session.attached ? colors.success : colors.warning;
   const statusIcon = session.attached ? "●" : "○";
+
+  // Show kill confirmation dialog as fullscreen overlay
+  if (showKillDialog) {
+    return (
+      <Box flexDirection="column" paddingX={2} paddingY={1}>
+        <ConfirmDialog
+          title="Confirm Kill Session"
+          message={`You are about to kill session "${session.name}"`}
+          details={[
+            "Stop tmux session",
+            "Remove git worktree",
+            "Delete local branch",
+          ]}
+          warning="This action cannot be undone."
+          confirmLabel="Yes"
+          cancelLabel="No"
+        />
+      </Box>
+    );
+  }
 
   return (
     <Box flexDirection="column" paddingX={1} paddingY={1}>

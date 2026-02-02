@@ -5,6 +5,7 @@ import Spinner from "ink-spinner";
 import { SessionList } from "../components/SessionList";
 import { StatusBar } from "../components/StatusBar";
 import { GitChangesPanel } from "../components/GitChangesPanel";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import type { Session, GitStats, LinearIssue, Project } from "../../types";
 import type { AppState, AppAction } from "../types";
 import { nextTab } from "../types";
@@ -74,6 +75,8 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   const { exit } = useApp();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [confirmKill, setConfirmKill] = useState<string | null>(null);
+  const [showKillDialog, setShowKillDialog] = useState(false);
+  const [sessionToKill, setSessionToKill] = useState<Session | null>(null);
   const [mergeState, setMergeState] = useState<
     | { phase: "idle" }
     | { phase: "confirm"; sessionName: string; hostName?: string }
@@ -211,13 +214,17 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   }, [dispatch]);
 
   const handleKill = useCallback(async (session: Session) => {
-    if (confirmKill !== session.name) {
-      setConfirmKill(session.name);
-      dispatch({ type: "SET_MESSAGE", message: `Press 'k' again to confirm kill "${session.name}"` });
-      return;
-    }
+    // Show confirmation dialog
+    setSessionToKill(session);
+    setShowKillDialog(true);
+  }, []);
 
-    setConfirmKill(null);
+  const executeKill = useCallback(async () => {
+    if (!sessionToKill) return;
+
+    setShowKillDialog(false);
+    const session = sessionToKill;
+    setSessionToKill(null);
 
     try {
       // Load metadata for cleanup
@@ -246,7 +253,7 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
         error: error instanceof Error ? error.message : "Failed to kill session",
       });
     }
-  }, [confirmKill, dispatch, onRefresh]);
+  }, [sessionToKill, dispatch, onRefresh]);
 
   const handleMerge = useCallback(async (session: Session) => {
     if (session.archived) {
@@ -720,7 +727,20 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       exit();
     } else if (input === "c") {
       dispatch({ type: "SET_VIEW", view: "create" });
-    } else if (input === "r" && previewSession) {
+    }
+    
+    // Handle kill confirmation dialog
+    if (showKillDialog) {
+      if (input === "y" || input === "Y") {
+        executeKill();
+      } else if (input === "n" || input === "N" || _key.escape) {
+        setShowKillDialog(false);
+        setSessionToKill(null);
+      }
+      return;
+    }
+
+    if (input === "r" && previewSession) {
       setReplyMode(true);
       setReplyText("");
     } else if (input === "r") {
@@ -817,6 +837,26 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
     }
     setSelectedIndex(index);
   };
+
+  // Show kill confirmation dialog as fullscreen overlay
+  if (showKillDialog && sessionToKill) {
+    return (
+      <Box flexDirection="column" paddingX={2} paddingY={1}>
+        <ConfirmDialog
+          title="Confirm Kill Session"
+          message={`You are about to kill session "${sessionToKill.name}"`}
+          details={[
+            "Stop tmux session",
+            "Remove git worktree",
+            "Delete local branch",
+          ]}
+          warning="This action cannot be undone."
+          confirmLabel="Yes"
+          cancelLabel="No"
+        />
+      </Box>
+    );
+  }
 
   return (
     <Box flexDirection="column">
