@@ -3,6 +3,7 @@ import type { Session, GitStats, LinearIssue } from "../types";
 export type WorkerEventType =
   | "worker_registered"
   | "worker_deregistered"
+  | "session_discovered"
   | "session_created"
   | "session_attached"
   | "session_detached"
