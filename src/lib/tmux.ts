@@ -702,7 +702,7 @@ export async function attachSession(name: string): Promise<void> {
  * Background watcher that auto-accepts Claude's trust dialog.
  * Monitors tmux pane output and sends "1\n" when trust prompt appears.
  */
-export function autoAcceptClaudeTrust(sessionName: string, windowName: string): void {
+export async function autoAcceptClaudeTrust(sessionName: string, windowName: string): Promise<void> {
   const fullSession = getSessionName(sessionName);
   const target = `${fullSession}:${windowName}`;
   
@@ -711,17 +711,21 @@ export function autoAcceptClaudeTrust(sessionName: string, windowName: string): 
 (
   for i in {1..60}; do
     OUTPUT=$(tmux capture-pane -t ${target} -p 2>/dev/null || echo "")
-    if echo "$OUTPUT" | grep -q "Yes, I trust this folder"; then
-      sleep 0.5
-      tmux send-keys -t ${target} "1" Enter 2>/dev/null || true
+    if echo "$OUTPUT" | grep -qi "trust this folder"; then
+      sleep 0.3
+      tmux send-keys -t ${target} "1" 2>/dev/null || true
+      sleep 0.2
+      tmux send-keys -t ${target} Enter 2>/dev/null || true
       exit 0
     fi
     sleep 0.5
   done
-) &
+) >/dev/null 2>&1 &
   `.trim();
   
-  exec(`bash -c '${watcherScript}'`).catch(() => {
+  try {
+    await exec(`bash -c '${watcherScript}'`);
+  } catch {
     // Ignore errors - non-critical background task
-  });
+  }
 }
