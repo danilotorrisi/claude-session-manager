@@ -11,7 +11,7 @@ import {
 } from "../../lib/worktree";
 import { getDefaultRepo } from "../../lib/config";
 import { cleanupStateFile } from "../../lib/claude-state";
-import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal, exitTuiAndAttachPM, exitTuiAndAttachRemote, exitTuiAndAttachRemoteTerminal } from "../index";
+import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal, exitTuiAndAttachPM, exitTuiAndAttachRemote, exitTuiAndAttachRemoteTerminal, exitTuiAndAttachRemotePM } from "../index";
 import { colors } from "../theme";
 
 interface SessionDetailProps {
@@ -63,14 +63,9 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
 
   const handleAttachPM = useCallback(async () => {
     if (!session) return;
-    
-    if (session.host) {
-      dispatch({ type: "SET_ERROR", error: "PM attach not yet supported for remote sessions" });
-      return;
-    }
 
     const { sessionPMExists } = await import("../../lib/session-pm");
-    const hasPM = await sessionPMExists(session.name);
+    const hasPM = await sessionPMExists(session.name, session.host);
     
     if (!hasPM) {
       dispatch({ type: "SET_ERROR", error: `Session "${session.name}" has no PM window` });
@@ -78,7 +73,12 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
     }
 
     const tmuxSessionName = getSessionName(session.name);
-    await exitTuiAndAttachPM(tmuxSessionName);
+    
+    if (session.host) {
+      await exitTuiAndAttachRemotePM(tmuxSessionName, session.host);
+    } else {
+      await exitTuiAndAttachPM(tmuxSessionName);
+    }
   }, [session, dispatch]);
 
   const handleKill = useCallback(async () => {

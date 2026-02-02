@@ -120,9 +120,9 @@ export function buildSessionPMSettings(): Record<string, any> {
 /**
  * Check if a PM window exists in the given session.
  */
-export async function sessionPMExists(sessionName: string): Promise<boolean> {
+export async function sessionPMExists(sessionName: string, hostName?: string): Promise<boolean> {
   const tmuxSession = getSessionName(sessionName);
-  const result = await exec(`tmux list-windows -t ${tmuxSession} -F '#{window_name}' 2>/dev/null`);
+  const result = await exec(`tmux list-windows -t ${tmuxSession} -F '#{window_name}' 2>/dev/null`, hostName);
   if (!result.success || !result.stdout) return false;
   return result.stdout.split("\n").some((w) => w.trim() === "pm");
 }
