@@ -117,6 +117,11 @@ export async function createWorktree(
   // Save metadata for later cleanup
   if (result.success) {
     await saveSessionMetadata(sessionName, repoPath, branchName, hostName, linearIssue, projectName);
+    
+    // Add .csm-pm/ to .gitignore to avoid tracking PM artifacts
+    const gitignorePath = join(worktreePath, ".gitignore");
+    const appendGitignore = `echo ".csm-pm/" >> "${gitignorePath}"`;
+    await exec(appendGitignore, hostName);
   }
 
   return result;
