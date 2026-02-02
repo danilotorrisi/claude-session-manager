@@ -15,7 +15,7 @@ import { exec as sshExec } from "../../lib/ssh";
 import { getDefaultRepo, saveArchivedSession, getLinearApiKey, getProjects } from "../../lib/config";
 import { searchIssues } from "../../lib/linear";
 import { cleanupStateFile } from "../../lib/claude-state";
-import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal, exitTuiAndAttachRemote, exitTuiAndAttachRemoteTerminal } from "../index";
+import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal, exitTuiAndAttachPM, exitTuiAndAttachRemote, exitTuiAndAttachRemoteTerminal } from "../index";
 import { colors } from "../theme";
 import { readFileSync, readdirSync, unlinkSync } from "fs";
 
@@ -191,6 +191,25 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       await exitTuiAndAttachTerminal(session.name, tmuxSessionName, session.worktreePath);
     }
   }, []);
+
+  const handleAttachPM = useCallback(async (session: Session) => {
+    // Check if PM window exists (only for local sessions)
+    if (session.host) {
+      dispatch({ type: "SET_ERROR", error: "PM attach not yet supported for remote sessions" });
+      return;
+    }
+
+    const { sessionPMExists } = await import("../../lib/session-pm");
+    const hasPM = await sessionPMExists(session.name);
+    
+    if (!hasPM) {
+      dispatch({ type: "SET_ERROR", error: `Session "${session.name}" has no PM window` });
+      return;
+    }
+
+    const tmuxSessionName = getSessionName(session.name);
+    await exitTuiAndAttachPM(tmuxSessionName);
+  }, [dispatch]);
 
   const handleKill = useCallback(async (session: Session) => {
     if (confirmKill !== session.name) {
@@ -713,6 +732,8 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       handleKill(orderedSessions[selectedIndex]);
     } else if (input === "t" && orderedSessions[selectedIndex]) {
       handleAttachTerminal(orderedSessions[selectedIndex]);
+    } else if (input === "w" && orderedSessions[selectedIndex]) {
+      handleAttachPM(orderedSessions[selectedIndex]);
     } else if (input === "m" && orderedSessions[selectedIndex]) {
       handleMerge(orderedSessions[selectedIndex]);
     } else if (input === "y" && pendingArchive) {
