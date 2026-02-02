@@ -165,7 +165,7 @@ export async function startSessionPM(
   await exec(`tmux send-keys -t ${tmuxSession}:pm 'claude' Enter`);
 
   // Auto-accept trust dialog for PM window (non-blocking)
-  autoAcceptClaudeTrust(sessionName, 'pm').catch(() => {});
+  autoAcceptClaudeTrust(tmuxSession, 'pm').catch(() => {});
 }
 
 /**

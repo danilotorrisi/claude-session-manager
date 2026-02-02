@@ -704,8 +704,8 @@ export async function attachSession(name: string): Promise<void> {
  * Monitors tmux pane output and sends "1\n" when trust prompt appears.
  */
 export async function autoAcceptClaudeTrust(sessionName: string, windowName: string): Promise<void> {
-  const fullSession = getSessionName(sessionName);
-  const target = `${fullSession}:${windowName}`;
+  // sessionName is already the full tmux session name (e.g., "csm-my-session")
+  const target = `${sessionName}:${windowName}`;
   
   // Write watcher script to temp file and execute in background
   const scriptPath = `/tmp/csm-trust-watcher-${sessionName}-${windowName}.sh`;
@@ -713,7 +713,7 @@ export async function autoAcceptClaudeTrust(sessionName: string, windowName: str
 sleep 1
 for i in {1..60}; do
   OUTPUT=$(tmux capture-pane -t ${target} -p 2>/dev/null || echo "")
-  if echo "$OUTPUT" | grep -qi "trust this folder"; then
+  if echo "$OUTPUT" | grep -qi "trust"; then
     sleep 0.3
     tmux send-keys -t ${target} "1" 2>/dev/null || true
     sleep 0.2
