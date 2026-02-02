@@ -12,9 +12,10 @@ interface SessionMetadata {
   feedbackReports?: FeedbackReport[];
 }
 
-export function generateBranchName(sessionName: string): string {
+export function generateBranchName(sessionName: string, projectName?: string): string {
   const timestamp = Date.now();
-  return `csm/${sessionName}-${timestamp}`;
+  const prefix = projectName || "csm";
+  return `${prefix}/${sessionName}-${timestamp}`;
 }
 
 export async function getWorktreePath(sessionName: string, projectName?: string): Promise<string> {
@@ -88,9 +89,10 @@ export async function cleanupStaleWorktree(
   // Prune stale worktree entries
   await exec(`cd "${repoPath}" && git worktree prune`, hostName);
 
-  // Also try to remove any lingering csm branches for this session
+  // Also try to remove any lingering branches for this session
+  const prefix = projectName || "csm";
   const branchResult = await exec(
-    `cd "${repoPath}" && git branch --list "csm/${sessionName}-*" | head -1`,
+    `cd "${repoPath}" && git branch --list "${prefix}/${sessionName}-*" | head -1`,
     hostName
   );
   if (branchResult.success && branchResult.stdout.trim()) {
@@ -108,7 +110,7 @@ export async function createWorktree(
   linearIssue?: LinearIssue,
   projectName?: string
 ): Promise<CommandResult> {
-  const branchName = generateBranchName(sessionName);
+  const branchName = generateBranchName(sessionName, projectName);
   const worktreePath = await getWorktreePath(sessionName, projectName);
 
   // Ensure the worktree directory (including project subdirectory) exists
