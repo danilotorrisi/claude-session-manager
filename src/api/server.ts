@@ -1,5 +1,6 @@
 import type { Server } from "bun";
 import type { WorkerEvent, WorkerHostInfo } from "../worker/types";
+import { handlePMCommand, handlePMStatus, handlePMEscalationResponse } from "./pm-routes";
 
 // In-memory storage for demo (in production, use a DB)
 interface WorkerInfo {
@@ -253,6 +254,49 @@ export async function startApiServer(port: number = 3000): Promise<Server> {
           response.headers.set(key, value);
         });
         return response;
+      }
+
+      // PM: send command to PM session
+      if (url.pathname === "/api/pm/command" && req.method === "POST") {
+        try {
+          const body = await req.json();
+          const response = await handlePMCommand(body);
+          Object.entries(headers).forEach(([key, value]) => {
+            response.headers.set(key, value);
+          });
+          return response;
+        } catch (error) {
+          return new Response(JSON.stringify({ error: "Invalid request" }), {
+            status: 400,
+            headers: { ...headers, "Content-Type": "application/json" },
+          });
+        }
+      }
+
+      // PM: get PM status
+      if (url.pathname === "/api/pm/status" && req.method === "GET") {
+        const response = handlePMStatus();
+        Object.entries(headers).forEach(([key, value]) => {
+          response.headers.set(key, value);
+        });
+        return response;
+      }
+
+      // PM: respond to escalation
+      if (url.pathname === "/api/pm/escalation-response" && req.method === "POST") {
+        try {
+          const body = await req.json();
+          const response = await handlePMEscalationResponse(body);
+          Object.entries(headers).forEach(([key, value]) => {
+            response.headers.set(key, value);
+          });
+          return response;
+        } catch (error) {
+          return new Response(JSON.stringify({ error: "Invalid request" }), {
+            status: 400,
+            headers: { ...headers, "Content-Type": "application/json" },
+          });
+        }
       }
 
       return new Response("Not Found", { status: 404, headers });
