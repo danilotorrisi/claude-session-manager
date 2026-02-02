@@ -1,6 +1,8 @@
 import React, { useState, useCallback, useEffect, useRef } from "react";
 import { Box, Text, useInput } from "ink";
 import TextInput from "../components/TextInput";
+import { HorizontalSelect } from "../components/HorizontalSelect";
+import type { HorizontalSelectOption } from "../components/HorizontalSelect";
 import Spinner from "ink-spinner";
 import type { AppState, AppAction } from "../types";
 import type { LinearIssue, Project } from "../../types";
@@ -280,11 +282,11 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
 
     // Project field: arrow keys to navigate, enter to select
     if (activeField === "project" && hasProjects) {
-      if (key.upArrow) {
+      if (key.leftArrow) {
         setProjectSelectedIdx(Math.max(0, projectSelectedIdx - 1));
         return;
       }
-      if (key.downArrow) {
+      if (key.rightArrow) {
         setProjectSelectedIdx(Math.min(projects.length - 1, projectSelectedIdx + 1));
         return;
       }
@@ -300,13 +302,13 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
     // Host field: arrow keys to navigate and update host, enter to create
     const hostOptions = ["", ...hostNames]; // "" = local
     if (activeField === "host") {
-      if (key.upArrow) {
+      if (key.leftArrow) {
         const newIdx = Math.max(0, hostSelectedIdx - 1);
         setHostSelectedIdx(newIdx);
         setHost(hostOptions[newIdx]);
         return;
       }
-      if (key.downArrow) {
+      if (key.rightArrow) {
         const newIdx = Math.min(hostOptions.length - 1, hostSelectedIdx + 1);
         setHostSelectedIdx(newIdx);
         setHost(hostOptions[newIdx]);
@@ -413,33 +415,17 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
                 Project:
               </Text>
             </Box>
-            <Box>
-              {selectedProject ? (
-                <Text color={colors.success}>{selectedProject.name}</Text>
-              ) : (
-                <Text color={colors.muted}>(none)</Text>
-              )}
+            <Box flexGrow={1}>
+              <HorizontalSelect
+                options={projects.map(p => ({ value: p.name, label: p.name }))}
+                selectedIndex={selectedProject ? projects.findIndex(p => p.name === selectedProject.name) : projectSelectedIdx}
+                isActive={activeField === "project"}
+              />
             </Box>
           </Box>
-          {activeField === "project" && (
-            <Box flexDirection="column" marginTop={1}>
-              {projects.map((project, idx) => (
-                <Box key={project.name}>
-                  <Text
-                    color={idx === projectSelectedIdx ? colors.textBright : colors.muted}
-                    backgroundColor={idx === projectSelectedIdx ? colors.primary : undefined}
-                    bold={idx === projectSelectedIdx}
-                  >
-                    {idx === projectSelectedIdx ? "› " : "  "}
-                    {project.name}
-                    <Text color={colors.muted} dimColor> — {project.repoPath}</Text>
-                  </Text>
-                </Box>
-              ))}
-              {projectsBase && (
-                <Text color={colors.muted} dimColor>base: {projectsBase}/</Text>
-              )}
-              <Text color={colors.muted} dimColor>↑↓ navigate · Enter select · Tab skip</Text>
+          {activeField === "project" && projectsBase && (
+            <Box marginTop={1}>
+              <Text color={colors.muted} dimColor>base: {projectsBase}/</Text>
             </Box>
           )}
         </Box>
@@ -582,25 +568,17 @@ export function CreateSession({ state, dispatch, onRefresh }: CreateSessionProps
               Host:
             </Text>
           </Box>
-          <Box>
-            <Text color={host ? colors.success : colors.muted}>{host || "(local)"}</Text>
+          <Box flexGrow={1}>
+            <HorizontalSelect
+              options={["", ...hostNames].map(h => ({ value: h, label: h || "(local)" }))}
+              selectedIndex={hostSelectedIdx}
+              isActive={activeField === "host"}
+            />
           </Box>
         </Box>
         {activeField === "host" && (
-          <Box flexDirection="column" marginTop={1}>
-            {["", ...hostNames].map((h, idx) => (
-              <Box key={h || "__local__"}>
-                <Text
-                  color={idx === hostSelectedIdx ? colors.textBright : colors.muted}
-                  backgroundColor={idx === hostSelectedIdx ? colors.primary : undefined}
-                  bold={idx === hostSelectedIdx}
-                >
-                  {idx === hostSelectedIdx ? "› " : "  "}
-                  {h || "(local)"}
-                </Text>
-              </Box>
-            ))}
-            <Text color={colors.muted} dimColor>↑↓ navigate · Enter select & create</Text>
+          <Box marginTop={1}>
+            <Text color={colors.muted} dimColor>Enter to create session</Text>
           </Box>
         )}
       </Box>

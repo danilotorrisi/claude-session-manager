@@ -587,6 +587,12 @@ export async function createSession(
     // Now launch claude (env vars are already in the shell)
     await exec(`tmux send-keys -t ${sessionName}:claude 'claude' Enter`, hostName);
 
+    // Auto-accept trust dialog for worktree (background watcher)
+    // Start immediately, don't await (runs in background)
+    if (!hostName) {
+      autoAcceptClaudeTrust(sessionName, 'claude').catch(() => {}); // Non-blocking
+    }
+
     await runSetupScript(sessionName, workingDir, hostName);
 
     // Start per-session PM (adds :pm window with its own Claude instance)
@@ -691,4 +697,42 @@ export async function attachSession(name: string): Promise<void> {
 
   const exitCode = await proc.exited;
   process.exit(exitCode);
+}
+
+/**
+ * Background watcher that auto-accepts Claude's trust dialog.
+ * Monitors tmux pane output and sends "1\n" when trust prompt appears.
+ */
+export async function autoAcceptClaudeTrust(sessionName: string, windowName: string): Promise<void> {
+  // sessionName is already the full tmux session name (e.g., "csm-my-session")
+  const target = `${sessionName}:${windowName}`;
+  
+  // Write watcher script to temp file and execute in background
+  const scriptPath = `/tmp/csm-trust-watcher-${sessionName}-${windowName}.sh`;
+  const watcherScript = `#!/bin/bash
+sleep 1
+for i in {1..60}; do
+  OUTPUT=$(tmux capture-pane -t ${target} -p 2>/dev/null || echo "")
+  if echo "$OUTPUT" | grep -qi "trust"; then
+    sleep 0.3
+    tmux send-keys -t ${target} "1" 2>/dev/null || true
+    sleep 0.2
+    tmux send-keys -t ${target} Enter 2>/dev/null || true
+    rm -f ${scriptPath}
+    exit 0
+  fi
+  sleep 0.5
+done
+rm -f ${scriptPath}
+`;
+  
+  try {
+    // Write script file
+    await Bun.write(scriptPath, watcherScript);
+    await exec(`chmod +x ${scriptPath}`);
+    // Execute in background (no await - fire and forget)
+    exec(`${scriptPath} >/dev/null 2>&1 &`);
+  } catch {
+    // Ignore errors - non-critical background task
+  }
 }
