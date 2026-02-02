@@ -95,6 +95,14 @@ export async function create(name: string, options: CreateOptions): Promise<void
     console.log(`  Running setup script (.csm-setup.sh)...`);
   }
 
+  // Log PM status (startSessionPM is called inside createSession)
+  if (!host) {
+    const { sessionPMExists } = await import("../lib/session-pm");
+    if (await sessionPMExists(name)) {
+      console.log(`  Session PM started (window :pm)`);
+    }
+  }
+
   console.log(`\nSession '${name}' created successfully!`);
   console.log(`\nTo attach: csm attach ${name}${host ? ` --host ${host}` : ""}`);
 }

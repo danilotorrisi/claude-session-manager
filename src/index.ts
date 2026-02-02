@@ -43,7 +43,7 @@ COMMANDS:
   rename <old> <new>  Rename a session
   hosts            List configured remote hosts
   worker [cmd]     Worker agent commands (start|status|sync)
-  pm [cmd]         Project manager commands (start|stop|status)
+  pm [cmd]         Project manager commands (start|stop|status|add-to-session)
   server           Start Master API server + co-located worker
   help             Show this help message
 
@@ -221,7 +221,7 @@ async function main(): Promise<void> {
         break;
 
       case "pm": {
-        const { pmStart, pmStop, pmStatus } = await import("./commands/pm");
+        const { pmStart, pmStop, pmStatus, pmAddToSession } = await import("./commands/pm");
         const pmCmd = name || "status";
         switch (pmCmd) {
           case "start":
@@ -236,9 +236,12 @@ async function main(): Promise<void> {
           case "status":
             await pmStatus();
             break;
+          case "add-to-session":
+            await pmAddToSession(positionalArgs[1]);
+            break;
           default:
             console.error(`Unknown pm command: ${pmCmd}`);
-            console.error("Available: start, stop, status");
+            console.error("Available: start, stop, status, add-to-session");
             process.exit(1);
         }
         break;
