@@ -17,13 +17,16 @@ export function generateBranchName(sessionName: string): string {
   return `csm/${sessionName}-${timestamp}`;
 }
 
-export async function getWorktreePath(sessionName: string): Promise<string> {
+export async function getWorktreePath(sessionName: string, projectName?: string): Promise<string> {
   const base = await getWorktreeBase();
+  if (projectName) {
+    return join(base, projectName, sessionName);
+  }
   return join(base, sessionName);
 }
 
-export async function getMetadataPath(sessionName: string): Promise<string> {
-  const worktreePath = await getWorktreePath(sessionName);
+export async function getMetadataPath(sessionName: string, projectName?: string): Promise<string> {
+  const worktreePath = await getWorktreePath(sessionName, projectName);
   return join(worktreePath, ".csm-metadata.json");
 }
 
@@ -35,7 +38,7 @@ export async function saveSessionMetadata(
   linearIssue?: LinearIssue,
   projectName?: string
 ): Promise<void> {
-  const metadataPath = await getMetadataPath(sessionName);
+  const metadataPath = await getMetadataPath(sessionName, projectName);
   const metadata: SessionMetadata = {
     repoPath,
     branchName,
@@ -48,9 +51,10 @@ export async function saveSessionMetadata(
 
 export async function loadSessionMetadata(
   sessionName: string,
-  hostName?: string
+  hostName?: string,
+  projectName?: string
 ): Promise<SessionMetadata | null> {
-  const metadataPath = await getMetadataPath(sessionName);
+  const metadataPath = await getMetadataPath(sessionName, projectName);
   const result = await exec(`cat "${metadataPath}" 2>/dev/null`, hostName);
   if (!result.success || !result.stdout) {
     return null;
@@ -73,9 +77,10 @@ export function isWorktreeConflictError(stderr: string): boolean {
 export async function cleanupStaleWorktree(
   sessionName: string,
   repoPath: string,
-  hostName?: string
+  hostName?: string,
+  projectName?: string
 ): Promise<CommandResult> {
-  const worktreePath = await getWorktreePath(sessionName);
+  const worktreePath = await getWorktreePath(sessionName, projectName);
 
   // Remove the directory if it exists
   await exec(`rm -rf "${worktreePath}"`, hostName);
@@ -104,11 +109,11 @@ export async function createWorktree(
   projectName?: string
 ): Promise<CommandResult> {
   const branchName = generateBranchName(sessionName);
-  const worktreePath = await getWorktreePath(sessionName);
+  const worktreePath = await getWorktreePath(sessionName, projectName);
 
-  // Ensure the worktree base directory exists
-  const base = await getWorktreeBase();
-  await exec(`mkdir -p "${base}"`, hostName);
+  // Ensure the worktree directory (including project subdirectory) exists
+  const worktreeDir = projectName ? join(await getWorktreeBase(), projectName) : await getWorktreeBase();
+  await exec(`mkdir -p "${worktreeDir}"`, hostName);
 
   // Create a new worktree with a new branch based on the current HEAD
   const command = `cd "${repoPath}" && git worktree add -b "${branchName}" "${worktreePath}"`;
@@ -132,8 +137,12 @@ export async function renameWorktree(
   newName: string,
   hostName?: string
 ): Promise<CommandResult> {
-  const oldPath = await getWorktreePath(oldName);
-  const newPath = await getWorktreePath(newName);
+  // Load old metadata first to get projectName
+  const oldMetadata = await loadSessionMetadata(oldName, hostName);
+  const projectName = oldMetadata?.projectName;
+  
+  const oldPath = await getWorktreePath(oldName, projectName);
+  const newPath = await getWorktreePath(newName, projectName);
 
   // Move the worktree directory
   const mvResult = await exec(`mv "${oldPath}" "${newPath}"`, hostName);
@@ -142,7 +151,7 @@ export async function renameWorktree(
   }
 
   // Load metadata to get repoPath for git worktree repair
-  const metadata = await loadSessionMetadata(newName, hostName);
+  const metadata = await loadSessionMetadata(newName, hostName, projectName);
   if (metadata?.repoPath) {
     await exec(`cd "${metadata.repoPath}" && git worktree repair`, hostName);
   }
@@ -171,7 +180,7 @@ export async function updateSessionProject(
     delete metadata.projectName;
   }
 
-  const metadataPath = await getMetadataPath(sessionName);
+  const metadataPath = await getMetadataPath(sessionName, metadata?.projectName);
   const json = JSON.stringify(metadata);
   const escaped = json.replace(/'/g, "'\\''");
   await exec(`echo '${escaped}' > "${metadataPath}"`, hostName);
@@ -197,7 +206,7 @@ export async function updateSessionTask(
     delete metadata.linearIssue;
   }
 
-  const metadataPath = await getMetadataPath(sessionName);
+  const metadataPath = await getMetadataPath(sessionName, metadata?.projectName);
   const json = JSON.stringify(metadata);
   const escaped = json.replace(/'/g, "'\\''");
   await exec(`echo '${escaped}' > "${metadataPath}"`, hostName);
@@ -208,7 +217,9 @@ export async function removeWorktree(
   repoPath: string,
   hostName?: string
 ): Promise<CommandResult> {
-  const worktreePath = await getWorktreePath(sessionName);
+  // Try to get projectName from metadata to use correct path
+  const metadata = await loadSessionMetadata(sessionName, hostName);
+  const worktreePath = await getWorktreePath(sessionName, metadata?.projectName);
 
   // Remove the worktree
   const command = `cd "${repoPath}" && git worktree remove "${worktreePath}" --force`;
@@ -220,7 +231,8 @@ export async function getWorktreeBranch(
   repoPath: string,
   hostName?: string
 ): Promise<string | null> {
-  const worktreePath = await getWorktreePath(sessionName);
+  const metadata = await loadSessionMetadata(sessionName, hostName);
+  const worktreePath = await getWorktreePath(sessionName, metadata?.projectName);
 
   // Resolve the path to handle symlinks (e.g., /tmp -> /private/tmp on macOS)
   const resolvedPathResult = await exec(`cd "${worktreePath}" && pwd -P 2>/dev/null || echo "${worktreePath}"`, hostName);
@@ -264,7 +276,8 @@ export async function worktreeExists(
   sessionName: string,
   hostName?: string
 ): Promise<boolean> {
-  const worktreePath = await getWorktreePath(sessionName);
+  const metadata = await loadSessionMetadata(sessionName, hostName);
+  const worktreePath = await getWorktreePath(sessionName, metadata?.projectName);
   const result = await exec(`test -d "${worktreePath}"`, hostName);
   return result.success;
 }
