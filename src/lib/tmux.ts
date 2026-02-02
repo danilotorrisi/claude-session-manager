@@ -707,26 +707,31 @@ export async function autoAcceptClaudeTrust(sessionName: string, windowName: str
   const fullSession = getSessionName(sessionName);
   const target = `${fullSession}:${windowName}`;
   
-  // Spawn background watcher that exits after 30 seconds or on trust acceptance
-  const watcherScript = `
-(
-  sleep 1
-  for i in {1..60}; do
-    OUTPUT=$(tmux capture-pane -t ${target} -p 2>/dev/null || echo "")
-    if echo "$OUTPUT" | grep -qi "trust this folder"; then
-      sleep 0.3
-      tmux send-keys -t ${target} "1" 2>/dev/null || true
-      sleep 0.2
-      tmux send-keys -t ${target} Enter 2>/dev/null || true
-      exit 0
-    fi
-    sleep 0.5
-  done
-) >/dev/null 2>&1 &
-  `.trim();
+  // Write watcher script to temp file and execute in background
+  const scriptPath = `/tmp/csm-trust-watcher-${sessionName}-${windowName}.sh`;
+  const watcherScript = `#!/bin/bash
+sleep 1
+for i in {1..60}; do
+  OUTPUT=$(tmux capture-pane -t ${target} -p 2>/dev/null || echo "")
+  if echo "$OUTPUT" | grep -qi "trust this folder"; then
+    sleep 0.3
+    tmux send-keys -t ${target} "1" 2>/dev/null || true
+    sleep 0.2
+    tmux send-keys -t ${target} Enter 2>/dev/null || true
+    rm -f ${scriptPath}
+    exit 0
+  fi
+  sleep 0.5
+done
+rm -f ${scriptPath}
+`;
   
   try {
-    await exec(`bash -c '${watcherScript}'`);
+    // Write script file
+    await Bun.write(scriptPath, watcherScript);
+    await exec(`chmod +x ${scriptPath}`);
+    // Execute in background (no await - fire and forget)
+    exec(`${scriptPath} >/dev/null 2>&1 &`);
   } catch {
     // Ignore errors - non-critical background task
   }
