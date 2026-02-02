@@ -588,8 +588,9 @@ export async function createSession(
     await exec(`tmux send-keys -t ${sessionName}:claude 'claude' Enter`, hostName);
 
     // Auto-accept trust dialog for worktree (background watcher)
+    // Start immediately, don't await (runs in background)
     if (!hostName) {
-      autoAcceptClaudeTrust(sessionName, 'claude');
+      autoAcceptClaudeTrust(sessionName, 'claude').catch(() => {}); // Non-blocking
     }
 
     await runSetupScript(sessionName, workingDir, hostName);
@@ -709,6 +710,7 @@ export async function autoAcceptClaudeTrust(sessionName: string, windowName: str
   // Spawn background watcher that exits after 30 seconds or on trust acceptance
   const watcherScript = `
 (
+  sleep 1
   for i in {1..60}; do
     OUTPUT=$(tmux capture-pane -t ${target} -p 2>/dev/null || echo "")
     if echo "$OUTPUT" | grep -qi "trust this folder"; then
