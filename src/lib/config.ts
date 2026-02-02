@@ -1,6 +1,6 @@
 import { homedir } from "os";
 import { basename, join } from "path";
-import type { Config, HostConfig, Project, R2Config } from "../types";
+import type { Config, HostConfig, PMConfig, Project, R2Config } from "../types";
 
 export function expandTilde(filepath: string): string {
   if (filepath === "~") return homedir();
@@ -286,6 +286,18 @@ export async function setFeedbackEnabled(enabled: boolean): Promise<void> {
   const config = await loadConfig();
   config.feedbackEnabled = enabled;
   await saveConfig(config);
+}
+
+export async function loadPMConfig(overrides?: Partial<PMConfig>): Promise<PMConfig> {
+  const config = await loadConfig();
+  const pm = config.pm || {};
+  return {
+    projectName: overrides?.projectName || pm.projectName || "default",
+    repoPath: overrides?.repoPath || pm.repoPath || config.defaultRepo || "",
+    developerIdleThresholdS: overrides?.developerIdleThresholdS || pm.developerIdleThresholdS || 120,
+    maxDeveloperSessions: overrides?.maxDeveloperSessions || pm.maxDeveloperSessions || 5,
+    escalationUrl: overrides?.escalationUrl || pm.escalationUrl,
+  };
 }
 
 export { CONFIG_DIR, CONFIG_FILE };
