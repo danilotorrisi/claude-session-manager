@@ -1,10 +1,10 @@
 import { readdirSync, readFileSync, realpathSync, statSync, unlinkSync } from "fs";
 import { join } from "path";
 import { exec } from "./ssh";
+import { execSync } from "child_process";
 
 const STATE_DIR = "/tmp/csm-claude-state";
 const STALE_THRESHOLD_MS = 60_000; // 60 seconds
-const WAITING_STALE_THRESHOLD_MS = 1_800_000; // 30 minutes - Claude can wait for user input
 const TRANSCRIPT_ACTIVE_THRESHOLD_MS = 10_000; // 10 seconds
 const MERGE_TIMESTAMP_THRESHOLD_S = 5; // 5 seconds
 
@@ -25,6 +25,41 @@ function normalizePath(p: string): string {
       return "/private" + p;
     }
     return p;
+  }
+}
+
+/**
+ * Check if a Claude process is running for the given worktree.
+ * Extracts session name from cwd and checks if Claude is a child of the tmux pane.
+ * Returns true if Claude is likely still active.
+ */
+function isClaudeProcessAlive(cwd: string): boolean {
+  try {
+    // Extract session name from path like /tmp/csm-worktrees/session-name/...
+    const match = cwd.match(/\/csm-worktrees\/([^/]+)/);
+    if (!match) return true; // Conservative: if can't parse, assume alive
+    
+    const sessionName = match[1];
+    
+    // Get the PID of the tmux pane
+    const panePidResult = execSync(
+      `tmux list-panes -t csm-${sessionName}:claude -F '#{pane_pid}' 2>/dev/null || echo ""`,
+      { encoding: "utf-8", timeout: 2000 }
+    );
+    
+    const panePid = panePidResult.trim();
+    if (!panePid) return false; // No pane = no Claude
+    
+    // Check if there's a child process named "claude"
+    const childrenResult = execSync(
+      `pgrep -P ${panePid} 2>/dev/null | xargs -I{} ps -p {} -o comm= 2>/dev/null || echo ""`,
+      { encoding: "utf-8", timeout: 2000 }
+    );
+    
+    return childrenResult.toLowerCase().includes("claude");
+  } catch {
+    // If check fails, assume process is alive (conservative approach)
+    return true;
   }
 }
 
@@ -65,20 +100,9 @@ export function readClaudeStates(): Map<string, ClaudeStateInfo> {
         info.state = "idle";
       }
 
-      // Handle waiting_for_input staleness with transcript fallback
-      if (
-        info.state === "waiting_for_input" &&
-        now - info.timestamp > WAITING_STALE_THRESHOLD_MS / 1000
-      ) {
-        if (info.transcriptPath) {
-          const transcriptMtime = getFileMtimeSeconds(info.transcriptPath);
-          if (transcriptMtime !== null && transcriptMtime > info.timestamp) {
-            // Transcript was modified after state was set — Claude likely continued
-            info.state = "working";
-          } else {
-            info.state = "idle";
-          }
-        } else {
+      // Handle waiting_for_input: only mark as idle if Claude process is no longer running
+      if (info.state === "waiting_for_input") {
+        if (!isClaudeProcessAlive(info.cwd)) {
           info.state = "idle";
         }
       }
@@ -187,9 +211,9 @@ export async function readRemoteClaudeStates(hostName: string): Promise<Map<stri
       if (info.state === "working" && now - info.timestamp > STALE_THRESHOLD_MS / 1000) {
         info.state = "idle";
       }
-      if (info.state === "waiting_for_input" && now - info.timestamp > WAITING_STALE_THRESHOLD_MS / 1000) {
-        info.state = "idle";
-      }
+      // For remote hosts, we can't check process status easily, so keep a very long timeout
+      // Users can manually refresh if needed
+      // (Could implement remote process check via SSH in future)
 
       const cwd = info.cwd;
       const existing = states.get(cwd);
