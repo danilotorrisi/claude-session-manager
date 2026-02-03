@@ -196,12 +196,29 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   }, []);
 
   const handleAttachPM = useCallback(async (session: Session) => {
-    const { sessionPMExists } = await import("../../lib/session-pm");
+    const { sessionPMExists, startSessionPM } = await import("../../lib/session-pm");
     const hasPM = await sessionPMExists(session.name, session.host);
     
     if (!hasPM) {
-      dispatch({ type: "SET_ERROR", error: `Session "${session.name}" has no PM window` });
-      return;
+      // Create PM window on-demand for older sessions
+      dispatch({ type: "SET_MESSAGE", message: `Creating PM window for "${session.name}"...` });
+      try {
+        const wtPath = session.worktreePath || await getWorktreePath(session.name);
+        const metadata = await loadSessionMetadata(session.name, session.host);
+        await startSessionPM(session.name, wtPath, {
+          projectName: session.projectName || undefined,
+          repoPath: metadata?.repoPath || undefined,
+          linearIssue: session.linearIssue?.identifier || undefined,
+          gitBranch: metadata?.branchName || undefined,
+        });
+        dispatch({ type: "SET_MESSAGE", message: `PM window created for "${session.name}"` });
+      } catch (error) {
+        dispatch({
+          type: "SET_ERROR",
+          error: error instanceof Error ? error.message : "Failed to create PM window",
+        });
+        return;
+      }
     }
 
     const tmuxSessionName = getSessionName(session.name);
