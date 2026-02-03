@@ -4,7 +4,7 @@ import { exec } from "./ssh";
 
 const STATE_DIR = "/tmp/csm-claude-state";
 const STALE_THRESHOLD_MS = 60_000; // 60 seconds
-const WAITING_STALE_THRESHOLD_MS = 120_000; // 2 minutes
+const WAITING_STALE_THRESHOLD_MS = 1_800_000; // 30 minutes - Claude can wait for user input
 const TRANSCRIPT_ACTIVE_THRESHOLD_MS = 10_000; // 10 seconds
 const MERGE_TIMESTAMP_THRESHOLD_S = 5; // 5 seconds
 
