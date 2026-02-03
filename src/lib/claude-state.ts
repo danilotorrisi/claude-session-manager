@@ -210,6 +210,38 @@ export async function readRemoteClaudeStates(hostName: string): Promise<Map<stri
   return states;
 }
 
+/**
+ * Find the best state for a worktree, matching by prefix (to handle subdirectories).
+ * Returns the state with highest priority + most recent timestamp among all matching cwds.
+ */
+export function findBestStateForWorktree(
+  states: Map<string, ClaudeStateInfo>,
+  worktreePath: string
+): ClaudeStateInfo | null {
+  const normalized = normalizePath(worktreePath);
+  const candidates: ClaudeStateInfo[] = [];
+
+  for (const [cwd, info] of states) {
+    // Match if cwd is exactly worktreePath OR is a subdirectory of it
+    if (cwd === normalized || cwd.startsWith(normalized + "/")) {
+      candidates.push(info);
+    }
+  }
+
+  if (candidates.length === 0) return null;
+  if (candidates.length === 1) return candidates[0];
+
+  // Sort by priority (desc) then timestamp (desc)
+  candidates.sort((a, b) => {
+    const aPrio = STATE_PRIORITY[a.state] ?? 0;
+    const bPrio = STATE_PRIORITY[b.state] ?? 0;
+    if (aPrio !== bPrio) return bPrio - aPrio;
+    return b.timestamp - a.timestamp;
+  });
+
+  return candidates[0];
+}
+
 export function cleanupStateFile(sessionName: string): void {
   const stateDir = STATE_DIR;
 

@@ -69,10 +69,9 @@ export async function listSessions(hostName?: string): Promise<Session[]> {
             normalizedPath = wtPath.startsWith("/tmp/") ? "/private" + wtPath : wtPath;
           }
         }
-        const stateInfo = claudeStates.get(normalizedPath);
-        // For remote, also try with /private prefix (macOS)
-        const stateInfoAlt = !stateInfo && hostName ? claudeStates.get("/private" + normalizedPath) : null;
-        const matched = stateInfo || stateInfoAlt;
+        // Use prefix matching to handle subdirectories
+        const { findBestStateForWorktree } = await import("./claude-state");
+        const matched = findBestStateForWorktree(claudeStates, normalizedPath);
         if (matched) {
           session.claudeState = matched.state;
           // Skip transcript reading for remote sessions (would require SSH)
