@@ -134,38 +134,42 @@ export async function sessionPMExists(sessionName: string, hostName?: string): P
 export async function startSessionPM(
   sessionName: string,
   worktreePath: string,
-  config: SessionPMConfig
+  config: SessionPMConfig,
+  hostName?: string
 ): Promise<void> {
   const tmuxSession = getSessionName(sessionName);
   const pmDir = join(worktreePath, ".csm-pm");
 
   // Create .csm-pm/ directory
-  await exec(`mkdir -p "${pmDir}/.claude"`);
+  await exec(`mkdir -p "${pmDir}/.claude"`, hostName);
 
   // Generate and write CLAUDE.md
   const claudeMd = generateSessionPMClaudeMd(sessionName, config);
-  await Bun.write(join(pmDir, "CLAUDE.md"), claudeMd);
+  const escapedClaudeMd = claudeMd.replace(/'/g, "'\\''");
+  await exec(`echo '${escapedClaudeMd}' > "${pmDir}/CLAUDE.md"`, hostName);
 
   // Write .claude/settings.json
   const settings = buildSessionPMSettings();
-  await Bun.write(join(pmDir, ".claude", "settings.json"), JSON.stringify(settings, null, 2));
+  const escapedSettings = JSON.stringify(settings, null, 2).replace(/'/g, "'\\''");
+  await exec(`echo '${escapedSettings}' > "${pmDir}/.claude/settings.json"`, hostName);
 
   // Create pm window in the existing tmux session
   const createWindowResult = await exec(
-    `tmux new-window -t ${tmuxSession} -n pm -c "${pmDir}"`
+    `tmux new-window -t ${tmuxSession} -n pm -c "${pmDir}"`,
+    hostName
   );
   if (!createWindowResult.success) {
     throw new Error(`Failed to create PM window: ${createWindowResult.stderr}`);
   }
 
   // Select back to claude window so user doesn't land on pm
-  await exec(`tmux select-window -t ${tmuxSession}:claude`);
+  await exec(`tmux select-window -t ${tmuxSession}:claude`, hostName);
 
   // Launch claude in the pm window
-  await exec(`tmux send-keys -t ${tmuxSession}:pm 'claude' Enter`);
+  await exec(`tmux send-keys -t ${tmuxSession}:pm 'claude' Enter`, hostName);
 
   // Auto-accept trust dialog for PM window (non-blocking)
-  autoAcceptClaudeTrust(tmuxSession, 'pm').catch(() => {});
+  autoAcceptClaudeTrust(tmuxSession, 'pm', hostName).catch(() => {});
 }
 
 /**

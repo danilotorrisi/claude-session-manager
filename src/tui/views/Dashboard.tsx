@@ -210,7 +210,7 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
           repoPath: metadata?.repoPath || undefined,
           linearIssue: session.linearIssue?.identifier || undefined,
           gitBranch: metadata?.branchName || undefined,
-        });
+        }, session.host);
         dispatch({ type: "SET_MESSAGE", message: `PM window created for "${session.name}"` });
       } catch (error) {
         dispatch({
