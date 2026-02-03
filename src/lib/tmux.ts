@@ -589,29 +589,25 @@ export async function createSession(
 
     // Auto-accept trust dialog for worktree (background watcher)
     // Start immediately, don't await (runs in background)
-    if (!hostName) {
-      autoAcceptClaudeTrust(sessionName, 'claude').catch(() => {}); // Non-blocking
-    }
+    autoAcceptClaudeTrust(sessionName, 'claude', hostName).catch(() => {}); // Non-blocking
 
     await runSetupScript(sessionName, workingDir, hostName);
 
     // Start per-session PM (adds :pm window with its own Claude instance)
-    if (!hostName) {
-      try {
-        // Gather context for PM template
-        const branchResult = await exec(`git -C "${workingDir}" branch --show-current 2>/dev/null`);
-        const gitBranch = branchResult.success ? branchResult.stdout.trim() : undefined;
+    try {
+      // Gather context for PM template
+      const branchResult = await exec(`git -C "${workingDir}" branch --show-current 2>/dev/null`, hostName);
+      const gitBranch = branchResult.success ? branchResult.stdout.trim() : undefined;
 
-        await startSessionPM(name, workingDir, {
-          projectName: project?.name,
-          repoPath: project?.repoPath,
-          linearIssue: linearIssue?.identifier,
-          gitBranch,
-        });
-      } catch (err) {
-        // Non-fatal: session works without PM
-        console.error(`Warning: Failed to start session PM: ${err instanceof Error ? err.message : err}`);
-      }
+      await startSessionPM(name, workingDir, {
+        projectName: project?.name,
+        repoPath: project?.repoPath,
+        linearIssue: linearIssue?.identifier,
+        gitBranch,
+      }, hostName);
+    } catch (err) {
+      // Non-fatal: session works without PM
+      console.error(`Warning: Failed to start session PM: ${err instanceof Error ? err.message : err}`);
     }
   }
 
@@ -703,7 +699,7 @@ export async function attachSession(name: string): Promise<void> {
  * Background watcher that auto-accepts Claude's trust dialog.
  * Monitors tmux pane output and sends "1\n" when trust prompt appears.
  */
-export async function autoAcceptClaudeTrust(sessionName: string, windowName: string): Promise<void> {
+export async function autoAcceptClaudeTrust(sessionName: string, windowName: string, hostName?: string): Promise<void> {
   // sessionName is already the full tmux session name (e.g., "csm-my-session")
   const target = `${sessionName}:${windowName}`;
   
@@ -728,10 +724,11 @@ rm -f ${scriptPath}
   
   try {
     // Write script file
-    await Bun.write(scriptPath, watcherScript);
-    await exec(`chmod +x ${scriptPath}`);
+    const escapedScript = watcherScript.replace(/'/g, "'\\''");
+    await exec(`echo '${escapedScript}' > ${scriptPath}`, hostName);
+    await exec(`chmod +x ${scriptPath}`, hostName);
     // Execute in background (no await - fire and forget)
-    exec(`${scriptPath} >/dev/null 2>&1 &`);
+    exec(`${scriptPath} >/dev/null 2>&1 &`, hostName);
   } catch {
     // Ignore errors - non-critical background task
   }
