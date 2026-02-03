@@ -73,7 +73,7 @@ function pollNotifications(): FeedbackNotification[] {
 
 export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   const { exit } = useApp();
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const selectedIndex = state.selectedSessionIndex;
   const [confirmKill, setConfirmKill] = useState<string | null>(null);
   const [showKillDialog, setShowKillDialog] = useState(false);
   const [sessionToKill, setSessionToKill] = useState<Session | null>(null);
@@ -835,7 +835,7 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       setReplyText("");
       closeEditModal();
     }
-    setSelectedIndex(index);
+    dispatch({ type: "SET_SELECTED_SESSION_INDEX", index });
   };
 
   // Show kill confirmation dialog as fullscreen overlay

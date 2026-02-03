@@ -40,6 +40,7 @@ export interface AppState {
   view: View;
   sessions: Session[];
   selectedSession: Session | null;
+  selectedSessionIndex: number; // Track selected index to restore after attach/detach
   loading: boolean;
   error: string | null;
   message: string | null;
@@ -57,6 +58,7 @@ export type AppAction =
   | { type: "SET_VIEW"; view: View }
   | { type: "SET_SESSIONS"; sessions: Session[] }
   | { type: "SELECT_SESSION"; session: Session | null }
+  | { type: "SET_SELECTED_SESSION_INDEX"; index: number }
   | { type: "SET_LOADING"; loading: boolean }
   | { type: "SET_ERROR"; error: string | null }
   | { type: "SET_MESSAGE"; message: string | null }
@@ -73,6 +75,7 @@ export const initialState: AppState = {
   view: "dashboard",
   sessions: [],
   selectedSession: null,
+  selectedSessionIndex: 0,
   loading: true,
   error: null,
   message: null,
@@ -93,6 +96,8 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return { ...state, sessions: action.sessions, loading: false };
     case "SELECT_SESSION":
       return { ...state, selectedSession: action.session };
+    case "SET_SELECTED_SESSION_INDEX":
+      return { ...state, selectedSessionIndex: action.index };
     case "SET_LOADING":
       return { ...state, loading: action.loading };
     case "SET_ERROR":
