@@ -96,16 +96,20 @@ export function handleWorkerEvent(event: WorkerEvent): Response {
         break;
       }
 
+      case "session_attached":
+      case "session_detached":
       case "claude_state_changed":
       case "git_changes": {
-        const existing = state.sessions.get(key);
-        if (existing) {
-          state.sessions.set(key, {
-            ...existing,
-            ...event.data,
-            lastUpdate: event.timestamp,
-          });
-        }
+        const existing = state.sessions.get(key) || {
+          workerId: event.workerId,
+          sessionName: event.sessionName,
+          created: event.timestamp,
+        };
+        state.sessions.set(key, {
+          ...existing,
+          ...event.data,
+          lastUpdate: event.timestamp,
+        });
         break;
       }
     }
@@ -119,11 +123,24 @@ export function handleWorkerEvent(event: WorkerEvent): Response {
   });
 }
 
-function handleWorkerSync(body: { sessions: any[] }): Response {
+function handleWorkerSync(body: { sessions: any[], workerId?: string }): Response {
   console.log(`[Master] Full state sync received: ${body.sessions.length} sessions`);
 
-  // In a real implementation, this would update the database
-  // For now, just acknowledge
+  for (const session of body.sessions) {
+    const wId = session.workerId || body.workerId || "unknown";
+    const sName = session.sessionName || session.name;
+    if (!sName) continue;
+    const key = `${wId}:${sName}`;
+    const existing = state.sessions.get(key);
+    state.sessions.set(key, {
+      ...existing,
+      ...session,
+      workerId: wId,
+      sessionName: sName,
+      lastUpdate: new Date().toISOString(),
+    });
+  }
+
   return new Response(JSON.stringify({ success: true }), {
     status: 200,
     headers: { "Content-Type": "application/json" },
@@ -165,6 +182,32 @@ export function handleGetWorkers(): Response {
 
   return new Response(
     JSON.stringify({ workers }),
+    {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }
+  );
+}
+
+function handleGetEvents(url: URL): Response {
+  const limit = Math.min(parseInt(url.searchParams.get("limit") || "50", 10), 200);
+  const before = url.searchParams.get("before");
+
+  let events = state.events;
+  if (before) {
+    const beforeTime = new Date(before).getTime();
+    events = events.filter((e) => new Date(e.timestamp).getTime() < beforeTime);
+  }
+
+  // Return most recent events first, up to limit
+  const page = events.slice(-limit).reverse();
+
+  return new Response(
+    JSON.stringify({
+      events: page,
+      hasMore: events.length > limit,
+      total: events.length,
+    }),
     {
       status: 200,
       headers: { "Content-Type": "application/json" },
@@ -258,6 +301,15 @@ export async function startApiServer(port: number = 3000): Promise<Server> {
         return response;
       }
 
+      // Paginated events
+      if (url.pathname === "/api/events" && req.method === "GET") {
+        const response = handleGetEvents(url);
+        Object.entries(headers).forEach(([key, value]) => {
+          response.headers.set(key, value);
+        });
+        return response;
+      }
+
       // Get current state (for debugging)
       if (url.pathname === "/api/state" && req.method === "GET") {
         const response = handleGetState();
@@ -317,6 +369,7 @@ export async function startApiServer(port: number = 3000): Promise<Server> {
   console.log(`[Master] API server listening on http://localhost:${port}`);
   console.log(`[Master] Health: http://localhost:${port}/api/health`);
   console.log(`[Master] Workers: http://localhost:${port}/api/workers`);
+  console.log(`[Master] Events: http://localhost:${port}/api/events`);
   console.log(`[Master] State: http://localhost:${port}/api/state`);
 
   return server;
