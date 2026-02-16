@@ -329,6 +329,182 @@ export async function startApiServer(port: number = 3000): Promise<Server<WsSock
         }
       }
 
+      // ─── Phase 4: Session API endpoints ──────────────────────────
+
+      // GET /api/sessions — list all sessions with merged WS state
+      if (url.pathname === "/api/sessions" && req.method === "GET") {
+        try {
+          const { listSessions } = await import("../lib/tmux");
+          const sessions = await listSessions();
+
+          // Merge WS state into each session
+          for (const session of sessions) {
+            const wsState = wsSessionManager.getSessionState(session.name);
+            if (wsState && wsState.status !== "disconnected") {
+              (session as any).wsConnected = true;
+              (session as any).wsStatus = wsState.status;
+              (session as any).wsModel = wsState.model;
+              (session as any).wsTurnCount = wsState.turnCount;
+              (session as any).wsCost = wsState.totalCostUsd;
+              (session as any).pendingApproval = wsState.pendingToolApproval ?? null;
+            }
+          }
+
+          return new Response(JSON.stringify({ sessions }), {
+            headers: { ...headers, "Content-Type": "application/json" },
+          });
+        } catch (error) {
+          return new Response(
+            JSON.stringify({ error: "Failed to list sessions" }),
+            { status: 500, headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        }
+      }
+
+      // POST /api/sessions/:name/message — send a message to a session
+      const messageMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/message$/);
+      if (messageMatch && req.method === "POST") {
+        try {
+          const sessionName = decodeURIComponent(messageMatch[1]);
+          const body = await req.json();
+
+          if (!body.text || typeof body.text !== "string") {
+            return new Response(
+              JSON.stringify({ error: "Missing or invalid 'text' field" }),
+              { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          }
+
+          // Try WebSocket first, fall back to tmux
+          if (wsSessionManager.isConnected(sessionName)) {
+            const sent = wsSessionManager.sendUserMessage(sessionName, body.text);
+            return new Response(
+              JSON.stringify({ success: sent, method: "websocket" }),
+              { headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          } else {
+            const { sendToSession } = await import("../lib/tmux");
+            const result = await sendToSession(sessionName, body.text);
+            return new Response(
+              JSON.stringify({ success: result.success, method: "tmux" }),
+              {
+                status: result.success ? 200 : 500,
+                headers: { ...headers, "Content-Type": "application/json" },
+              }
+            );
+          }
+        } catch (error) {
+          return new Response(
+            JSON.stringify({ error: "Invalid request" }),
+            { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        }
+      }
+
+      // GET /api/sessions/:name/stream — SSE stream of session events
+      const streamMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/stream$/);
+      if (streamMatch && req.method === "GET") {
+        const sessionName = decodeURIComponent(streamMatch[1]);
+        const encoder = new TextEncoder();
+
+        const stream = new ReadableStream({
+          start(controller) {
+            // Send initial connection event
+            controller.enqueue(
+              encoder.encode(`data: ${JSON.stringify({ type: "connected", sessionName })}\n\n`)
+            );
+
+            // Send current state snapshot if available
+            const currentState = wsSessionManager.getSessionState(sessionName);
+            if (currentState) {
+              controller.enqueue(
+                encoder.encode(
+                  `data: ${JSON.stringify({ type: "state_snapshot", sessionName, state: currentState })}\n\n`
+                )
+              );
+            }
+
+            // Subscribe to wsSessionManager events for this session
+            const unsubscribe = wsSessionManager.on((event) => {
+              if ("sessionName" in event && event.sessionName === sessionName) {
+                try {
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+                } catch {
+                  // Stream already closed
+                  unsubscribe();
+                }
+              }
+            });
+
+            // Cleanup on client disconnect
+            req.signal.addEventListener("abort", () => {
+              unsubscribe();
+              try {
+                controller.close();
+              } catch {
+                // Already closed
+              }
+            });
+          },
+        });
+
+        return new Response(stream, {
+          headers: {
+            ...headers,
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+          },
+        });
+      }
+
+      // POST /api/sessions/:name/approve-tool — approve or deny a tool use request
+      const approveMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/approve-tool$/);
+      if (approveMatch && req.method === "POST") {
+        try {
+          const sessionName = decodeURIComponent(approveMatch[1]);
+          const body = await req.json();
+
+          if (!body.requestId || !body.action) {
+            return new Response(
+              JSON.stringify({ error: "Missing requestId or action" }),
+              { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          }
+
+          if (body.action !== "allow" && body.action !== "deny") {
+            return new Response(
+              JSON.stringify({ error: "action must be 'allow' or 'deny'" }),
+              { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          }
+
+          if (!wsSessionManager.isConnected(sessionName)) {
+            return new Response(
+              JSON.stringify({ error: "Session not connected via WebSocket" }),
+              { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          }
+
+          const success = wsSessionManager.respondToToolApproval(
+            sessionName,
+            body.requestId,
+            body.action,
+            body.message
+          );
+
+          return new Response(
+            JSON.stringify({ success }),
+            { headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        } catch (error) {
+          return new Response(
+            JSON.stringify({ error: "Invalid request" }),
+            { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        }
+      }
+
       return new Response("Not Found", { status: 404, headers });
     },
     websocket: {

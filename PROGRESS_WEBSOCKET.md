@@ -377,10 +377,105 @@ Add notification bar when any session has pending tool approval:
 
 ---
 
-## Phase 4: API Endpoints for External Clients 🔄 NEXT
+## Phase 4: API Endpoints for External Clients ✅ COMPLETE
 
-**Status:** Ready to begin
+**Status:** Implemented, tested, and verified
+**Completion Date:** 2026-02-16
 **Dependencies:** Phase 3 complete ✅
+
+### Deliverables
+
+#### 1. `src/api/server.ts` (modified, +173 lines)
+Four new HTTP API endpoints for external clients (OpenClaw, future web UI):
+
+**GET /api/sessions** (lines 334-362):
+- Lists all tmux sessions via `listSessions()`
+- Merges live WebSocket state into each session: wsConnected, wsStatus, wsModel, wsTurnCount, wsCost, pendingApproval
+- Returns `{ sessions: [...] }` JSON
+- Includes CORS headers
+
+**POST /api/sessions/:name/message** (lines 364-402):
+- Sends text prompt to a session
+- WebSocket-first: Tries `wsSessionManager.sendUserMessage()` if connected
+- Falls back to tmux `sendToSession()` if not connected
+- Validates `text` field in request body (returns 400 if missing/invalid)
+- Returns `{ success, method: "websocket"|"tmux" }`
+- Handles URL-encoded session names
+
+**GET /api/sessions/:name/stream** (lines 404-459):
+- Server-Sent Events (SSE) endpoint for real-time session events
+- Returns `Content-Type: text/event-stream` with cache control headers
+- Sends initial `connected` event
+- Sends `state_snapshot` event with current WS state if session exists
+- Streams filtered events via `wsSessionManager.on()` (only events for requested session)
+- Auto-cleanup: Unsubscribes on client disconnect (`req.signal.abort`)
+- CORS headers included
+
+**POST /api/sessions/:name/approve-tool** (lines 461-506):
+- Approves or denies pending tool use requests
+- Validates `requestId` and `action` fields ("allow" or "deny")
+- Checks session is WebSocket-connected (returns 400 if not)
+- Calls `wsSessionManager.respondToToolApproval()`
+- Optional `message` parameter for denial reasons
+- Returns `{ success: true }` on success
+- Comprehensive error handling (400 for validation failures)
+
+**Common features across all endpoints:**
+- CORS headers on all responses
+- Proper HTTP status codes (200, 400, 404, 500)
+- JSON error messages
+- URL decoding for session names
+- Type-safe implementation with TypeScript
+
+#### 2. `src/api/__tests__/phase4-api.test.ts` (new)
+Comprehensive test suite for API endpoints:
+- **24 tests, 67 assertions, 0 failures**
+- **GET /api/sessions (3 tests):** Returns sessions array, merges WS state, includes CORS
+- **POST message (6 tests):** WebSocket path verified (message received on WS), tmux fallback, text validation (missing/non-string), invalid JSON, URL-encoded names
+- **GET stream/SSE (5 tests):** SSE headers, connected event, state_snapshot, real-time event streaming, session isolation (no cross-leaking)
+- **POST approve-tool (7 tests):** Allow flow (verified control_response "allow" on WS), deny flow (verified "deny"), requestId validation, action validation, invalid action value, not-connected error, invalid JSON
+- **Cross-cutting (3 tests):** Unknown routes → 404, OPTIONS → 204 (CORS preflight), existing endpoints still work
+
+### Verification
+
+- ✅ **TypeScript:** 0 errors (`bun run typecheck`)
+- ✅ **Full test suite:** 332 tests passing, 0 failures, 759 assertions
+- ✅ **Phase 4 tests:** 24/24 passing, 67 assertions
+- ✅ **All previous phases:** No regressions
+- ✅ **E2E verification:** All manual checks passed
+  - GET /api/sessions returns sessions with WS state merged
+  - POST message sends via WebSocket (verified on WS client) + tmux fallback
+  - SSE stream delivers real-time events with correct isolation
+  - Tool approval sends control_response (allow/deny verified)
+  - Error cases return proper 400 responses
+  - CORS headers present on all endpoints
+
+### Integration Points
+
+**For external clients (OpenClaw, web UI, CLI tools):**
+1. List sessions: `GET /api/sessions` → Full session list with live state
+2. Send prompt: `POST /api/sessions/:name/message` → Interact with Claude
+3. Stream events: `GET /api/sessions/:name/stream` → Real-time updates via SSE
+4. Approve tools: `POST /api/sessions/:name/approve-tool` → Control tool execution
+
+**Example usage:**
+```bash
+# List all sessions with live state
+curl http://localhost:3000/api/sessions
+
+# Send a message
+curl -X POST http://localhost:3000/api/sessions/my-session/message \
+  -H "Content-Type: application/json" \
+  -d '{"text":"list files"}'
+
+# Stream real-time events
+curl -N http://localhost:3000/api/sessions/my-session/stream
+
+# Approve a tool
+curl -X POST http://localhost:3000/api/sessions/my-session/approve-tool \
+  -H "Content-Type: application/json" \
+  -d '{"requestId":"req-123","action":"allow"}'
+```
 
 ### Planned Routes
 
