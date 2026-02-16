@@ -374,20 +374,3 @@ export async function exitTuiAndAttachRemotePM(tmuxSessionName: string, hostName
   startTui();
 }
 
-// Keep the old function for cases where we want to exit completely
-export async function exitTuiAndRun(command: string, args: string[]): Promise<never> {
-  if (instance) {
-    instance.unmount();
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-
-  process.stdout.write("\x1B[2J\x1B[H");
-
-  const { spawnSync } = await import("child_process");
-  const result = spawnSync(command, args, {
-    stdio: "inherit",
-    env: process.env,
-  });
-
-  process.exit(result.status ?? 1);
-}

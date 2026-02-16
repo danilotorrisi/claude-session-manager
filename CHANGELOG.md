@@ -2,6 +2,34 @@
 
 All notable changes to Claude Session Manager (CSM) are documented here.
 
+## 1.4.0
+
+### Added
+- **WebSocket integration** — Real-time session state via Claude Code's `--sdk-url` flag (4-phase implementation)
+- **Live TUI updates** — Real-time session status, streaming logs, and tool approval UI without polling delays
+- **Tool approval interface** — Interactive y/n keybindings for approving/denying tool use in SessionDetail view
+- **Dashboard notifications** — Alert bar for pending tool approvals with Space key navigation
+- **HTTP API for external clients** — Four new endpoints for OpenClaw and future web UIs:
+  - `GET /api/sessions` — List sessions with merged WebSocket state
+  - `POST /api/sessions/:name/message` — Send prompts to sessions
+  - `GET /api/sessions/:name/stream` — Server-Sent Events for real-time updates
+  - `POST /api/sessions/:name/approve-tool` — Approve/deny tool use requests
+- **Streaming output display** — Per-session streaming logs with color-coded event types
+- **WebSocket-first message routing** — Automatic WebSocket delivery with tmux fallback
+- **Reduced polling** — TUI polling reduced from 1s to 5s (80% reduction in background requests)
+- **Event-driven refresh** — Immediate TUI updates on session connect/disconnect/status changes
+
+### Technical Details
+- Phase 1: WebSocket server + session state management (30 tests)
+- Phase 2: Session creation with `--sdk-url` flag (22 tests)
+- Phase 3: TUI hooks integration (36 tests)
+- Phase 4: HTTP API endpoints (24 tests)
+- Total: 112 new tests, 0 regressions
+
+### Documentation
+- Added `CSM_WEBSOCKET_PLAN.md` — Complete 4-phase implementation plan
+- Added `PROGRESS_WEBSOCKET.md` — Phase-by-phase progress tracking and verification
+
 ## 1.3.0
 
 ### Added
