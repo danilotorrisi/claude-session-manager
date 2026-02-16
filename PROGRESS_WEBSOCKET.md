@@ -124,12 +124,63 @@ Events → TUI / API (Phase 3/4)
 
 ---
 
-## Phase 2: Modified Session Creation 🔄 NEXT
+## Phase 2: Modified Session Creation ✅ COMPLETE
 
-**Status:** Ready to begin
+**Status:** Implemented, tested, and verified
+**Completion Date:** 2026-02-16
 **Dependencies:** Phase 1 complete ✅
 
-### Planned Changes
+### Deliverables
+
+#### 1. `src/types.ts` (modified)
+Added `apiPort?: number` field to Config interface:
+- Default value: 3000
+- Used to construct WebSocket URL for --sdk-url flag
+- Supports custom port configuration
+
+#### 2. `src/lib/tmux.ts` (modified)
+Three critical modifications for WebSocket integration:
+- **createSession()** (lines 586-604): Local sessions launch Claude with `--sdk-url ws://localhost:{apiPort}/ws/sessions?name={name}` plus flags: `--print`, `--output-format stream-json`, `--input-format stream-json`, `--verbose`, `--permission-mode acceptEdits`. Queues initial prompt via wsSessionManager. Remote sessions unchanged.
+- **autoAcceptClaudeTrust()** handling: Removed for local sessions (--permission-mode replaces it), kept for remote sessions
+- **sendToSession()** (lines 690-703): WebSocket-first approach for local sessions - checks if connected, sends via wsSessionManager, falls back to tmux send-keys when unavailable or for remote sessions
+
+#### 3. `src/lib/session-pm.ts` (modified)
+PM window WebSocket support:
+- **startSessionPM()**: Local PM sessions use `--sdk-url` with `{sessionName}-pm` naming convention
+- Same flag set as main sessions
+- Queues PM initial prompt: "Session PM ready. Monitoring developer session and waiting for instructions."
+- Remote PM sessions unchanged (plain `claude` + autoAcceptClaudeTrust)
+- Fixed variable shadowing (appConfig vs config parameter)
+
+#### 4. `src/lib/__tests__/phase2-integration.test.ts` (new)
+Comprehensive test suite for Phase 2:
+- **22 tests, 60 assertions, 0 failures**
+- **Coverage:**
+  - createSession() --sdk-url command construction (default + custom port)
+  - Queued prompt delivery (main + PM sessions)
+  - Remote session preservation (no --sdk-url)
+  - autoAcceptClaudeTrust() conditional logic
+  - sendToSession() WebSocket-first routing with fallback
+  - startSessionPM() WebSocket support with -pm suffix
+  - apiPort configuration handling
+
+### Verification
+
+- ✅ **TypeScript:** 0 errors (`bun run typecheck`)
+- ✅ **Full test suite:** 272 tests passing, 0 failures, 594 assertions
+- ✅ **Phase 1 regression:** 30/30 WebSocket integration tests still pass
+- ✅ **Phase 2 tests:** 22/22 passing
+- ✅ **E2E verification:** All manual checks passed
+  - API server startup and health check
+  - WebSocket connection lifecycle (connecting → ready → working → waiting_for_input → disconnected)
+  - Queued prompt delivery after system/init
+  - sendUserMessage delivery over WebSocket
+  - Tool approval flow
+  - Custom apiPort configuration
+  - Multiple concurrent sessions (main + PM)
+  - Code changes verified (3 files, +50/-10 lines)
+
+### Changes from Original Plan
 
 #### 1. `src/lib/tmux.ts` - `createSession()` (line 587)
 **Goal:** Launch Claude with `--sdk-url` for local sessions
@@ -220,10 +271,10 @@ export interface Config {
 
 ---
 
-## Phase 3: TUI Integration 🔄 PENDING
+## Phase 3: TUI Integration 🔄 NEXT
 
-**Status:** Awaiting Phase 2
-**Dependencies:** Phase 2 complete
+**Status:** Ready to begin
+**Dependencies:** Phase 2 complete ✅
 
 ### Planned Components
 

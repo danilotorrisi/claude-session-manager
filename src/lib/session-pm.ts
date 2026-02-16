@@ -34,6 +34,7 @@ import { readFileSync } from "fs";
 import { join } from "path";
 import { exec } from "./ssh";
 import { getSessionName, autoAcceptClaudeTrust } from "./tmux";
+import { loadConfig } from "./config";
 
 const SESSION_PM_TEMPLATE_PATH = join(import.meta.dir, "../../templates/session-pm-claude.md");
 
@@ -166,10 +167,25 @@ export async function startSessionPM(
   await exec(`tmux select-window -t ${tmuxSession}:claude`, hostName);
 
   // Launch claude in the pm window
-  await exec(`tmux send-keys -t ${tmuxSession}:pm 'claude' Enter`, hostName);
+  if (!hostName) {
+    // Local session: launch Claude with --sdk-url for WebSocket integration
+    const appConfig = await loadConfig();
+    const apiPort = appConfig.apiPort ?? 3000;
+    const pmWsName = `${sessionName}-pm`;
+    const sdkUrl = `ws://localhost:${apiPort}/ws/sessions?name=${encodeURIComponent(pmWsName)}`;
+    const claudeCmd = `claude --sdk-url '${sdkUrl}' --print --output-format stream-json --input-format stream-json --verbose --permission-mode acceptEdits`;
+    await exec(`tmux send-keys -t ${tmuxSession}:pm '${claudeCmd.replace(/'/g, "'\\''")}' Enter`, hostName);
 
-  // Auto-accept trust dialog for PM window (non-blocking)
-  autoAcceptClaudeTrust(tmuxSession, 'pm', hostName).catch(() => {});
+    // Queue initial PM prompt so Claude starts with context once connected
+    const { wsSessionManager } = await import("./ws-session-manager");
+    wsSessionManager.queueInitialPrompt(pmWsName, "Session PM ready. Monitoring developer session and waiting for instructions.");
+  } else {
+    // Remote session: launch claude without --sdk-url
+    await exec(`tmux send-keys -t ${tmuxSession}:pm 'claude' Enter`, hostName);
+
+    // Auto-accept trust dialog for PM window (only needed for remote sessions)
+    autoAcceptClaudeTrust(tmuxSession, 'pm', hostName).catch(() => {});
+  }
 }
 
 /**

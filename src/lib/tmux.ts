@@ -583,12 +583,25 @@ export async function createSession(
       }
     }
 
-    // Now launch claude (env vars are already in the shell)
-    await exec(`tmux send-keys -t ${sessionName}:claude 'claude' Enter`, hostName);
+    if (!hostName) {
+      // Local session: launch Claude with --sdk-url for WebSocket integration
+      const config = await loadConfig();
+      const apiPort = config.apiPort ?? 3000;
+      const sdkUrl = `ws://localhost:${apiPort}/ws/sessions?name=${encodeURIComponent(name)}`;
+      const claudeCmd = `claude --sdk-url '${sdkUrl}' --print --output-format stream-json --input-format stream-json --verbose --permission-mode acceptEdits`;
+      await exec(`tmux send-keys -t ${sessionName}:claude '${claudeCmd.replace(/'/g, "'\\''")}' Enter`, hostName);
 
-    // Auto-accept trust dialog for worktree (background watcher)
-    // Start immediately, don't await (runs in background)
-    autoAcceptClaudeTrust(sessionName, 'claude', hostName).catch(() => {}); // Non-blocking
+      // Queue initial prompt so Claude starts with a message once connected
+      const { wsSessionManager } = await import("./ws-session-manager");
+      wsSessionManager.queueInitialPrompt(name, "CSM session ready. Waiting for instructions.");
+    } else {
+      // Remote session: launch claude without --sdk-url (no WebSocket yet)
+      await exec(`tmux send-keys -t ${sessionName}:claude 'claude' Enter`, hostName);
+
+      // Auto-accept trust dialog for worktree (background watcher)
+      // Only needed for remote sessions (local uses --permission-mode acceptEdits)
+      autoAcceptClaudeTrust(sessionName, 'claude', hostName).catch(() => {}); // Non-blocking
+    }
 
     await runSetupScript(sessionName, workingDir, hostName);
 
@@ -675,6 +688,16 @@ export async function killSession(
 }
 
 export async function sendToSession(name: string, text: string, hostName?: string): Promise<CommandResult> {
+  // For local sessions, try WebSocket first
+  if (!hostName) {
+    const { wsSessionManager } = await import("./ws-session-manager");
+    if (wsSessionManager.isConnected(name)) {
+      wsSessionManager.sendUserMessage(name, text);
+      return { success: true, stdout: "", stderr: "", exitCode: 0 };
+    }
+  }
+
+  // Fallback to tmux send-keys
   const sessionName = getSessionName(name);
   // Escape single quotes for shell safety
   const escaped = text.replace(/'/g, "'\\''");

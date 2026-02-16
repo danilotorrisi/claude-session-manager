@@ -49,6 +49,7 @@ export interface Config {
   feedbackEnabled?: boolean;
   claudeSettings?: ClaudeSettingsConfig;
   pm?: Partial<PMConfig>;
+  apiPort?: number; // Default: 3000
 }
 
 export interface GitStats {
