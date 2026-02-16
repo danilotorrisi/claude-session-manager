@@ -4,7 +4,7 @@ import { readClaudeStates, readRemoteClaudeStates, getLastAssistantMessage } fro
 import { getWorktreePath, loadSessionMetadata } from "./worktree";
 import { isFeedbackEnabled, loadConfig } from "./config";
 import { realpathSync } from "fs";
-import { startSessionPM } from "./session-pm";
+
 
 const SESSION_PREFIX = "csm-";
 
@@ -565,7 +565,6 @@ export async function createSession(
 
   // Create detached tmux session with claude + terminal windows, but don't launch claude yet
   // so env vars can be exported into the claude window shell first.
-  // The pm window is added later by startSessionPM().
   const command = `tmux new-session -d -s ${sessionName} -c "${workingDir}" -n claude && tmux new-window -t ${sessionName} -n terminal -c "${workingDir}" && tmux select-window -t ${sessionName}:claude`;
   const result = await exec(command, hostName);
 
@@ -605,22 +604,6 @@ export async function createSession(
 
     await runSetupScript(sessionName, workingDir, hostName);
 
-    // Start per-session PM (adds :pm window with its own Claude instance)
-    try {
-      // Gather context for PM template
-      const branchResult = await exec(`git -C "${workingDir}" branch --show-current 2>/dev/null`, hostName);
-      const gitBranch = branchResult.success ? branchResult.stdout.trim() : undefined;
-
-      await startSessionPM(name, workingDir, {
-        projectName: project?.name,
-        repoPath: project?.repoPath,
-        linearIssue: linearIssue?.identifier,
-        gitBranch,
-      }, hostName);
-    } catch (err) {
-      // Non-fatal: session works without PM
-      console.error(`Warning: Failed to start session PM: ${err instanceof Error ? err.message : err}`);
-    }
   }
 
   return result;

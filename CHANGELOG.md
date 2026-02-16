@@ -19,12 +19,14 @@ All notable changes to Claude Session Manager (CSM) are documented here.
 - **Reduced polling** — TUI polling reduced from 1s to 5s (80% reduction in background requests)
 - **Event-driven refresh** — Immediate TUI updates on session connect/disconnect/status changes
 
+### Removed
+- **PM (Project Manager) system** — Removed `session-pm.ts`, `pm-session.ts`, `pm-state.ts`, PM routes, PM commands, PM TUI views, and all associated tests. PM functionality has been deprecated in favor of direct session management.
+
 ### Technical Details
 - Phase 1: WebSocket server + session state management (30 tests)
 - Phase 2: Session creation with `--sdk-url` flag (22 tests)
 - Phase 3: TUI hooks integration (36 tests)
 - Phase 4: HTTP API endpoints (24 tests)
-- Total: 112 new tests, 0 regressions
 
 ### Documentation
 - Added `CSM_WEBSOCKET_PLAN.md` — Complete 4-phase implementation plan

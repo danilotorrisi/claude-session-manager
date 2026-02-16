@@ -17,7 +17,7 @@ import { exec as sshExec } from "../../lib/ssh";
 import { getDefaultRepo, saveArchivedSession, getLinearApiKey, getProjects } from "../../lib/config";
 import { searchIssues } from "../../lib/linear";
 import { cleanupStateFile } from "../../lib/claude-state";
-import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal, exitTuiAndAttachPM, exitTuiAndAttachRemote, exitTuiAndAttachRemoteTerminal, exitTuiAndAttachRemotePM } from "../index";
+import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal, exitTuiAndAttachRemote, exitTuiAndAttachRemoteTerminal } from "../index";
 import { colors } from "../theme";
 import { readFileSync, readdirSync, unlinkSync } from "fs";
 
@@ -198,41 +198,6 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       await exitTuiAndAttachTerminal(session.name, tmuxSessionName, session.worktreePath);
     }
   }, []);
-
-  const handleAttachPM = useCallback(async (session: Session) => {
-    const { sessionPMExists, startSessionPM } = await import("../../lib/session-pm");
-    const hasPM = await sessionPMExists(session.name, session.host);
-    
-    if (!hasPM) {
-      // Create PM window on-demand for older sessions
-      dispatch({ type: "SET_MESSAGE", message: `Creating PM window for "${session.name}"...` });
-      try {
-        const wtPath = session.worktreePath || await getWorktreePath(session.name);
-        const metadata = await loadSessionMetadata(session.name, session.host);
-        await startSessionPM(session.name, wtPath, {
-          projectName: session.projectName || undefined,
-          repoPath: metadata?.repoPath || undefined,
-          linearIssue: session.linearIssue?.identifier || undefined,
-          gitBranch: metadata?.branchName || undefined,
-        }, session.host);
-        dispatch({ type: "SET_MESSAGE", message: `PM window created for "${session.name}"` });
-      } catch (error) {
-        dispatch({
-          type: "SET_ERROR",
-          error: error instanceof Error ? error.message : "Failed to create PM window",
-        });
-        return;
-      }
-    }
-
-    const tmuxSessionName = getSessionName(session.name);
-    
-    if (session.host) {
-      await exitTuiAndAttachRemotePM(tmuxSessionName, session.host);
-    } else {
-      await exitTuiAndAttachPM(tmuxSessionName);
-    }
-  }, [dispatch]);
 
   const handleKill = useCallback(async (session: Session) => {
     // Show confirmation dialog
@@ -772,8 +737,6 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
       handleKill(orderedSessions[selectedIndex]);
     } else if (input === "t" && orderedSessions[selectedIndex]) {
       handleAttachTerminal(orderedSessions[selectedIndex]);
-    } else if (input === "w" && orderedSessions[selectedIndex]) {
-      handleAttachPM(orderedSessions[selectedIndex]);
     } else if (input === "m" && orderedSessions[selectedIndex]) {
       handleMerge(orderedSessions[selectedIndex]);
     } else if (input === "y" && pendingArchive) {

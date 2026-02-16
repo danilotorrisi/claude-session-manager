@@ -127,10 +127,6 @@ if (!hostName) {
 // existing tmux send-keys fallback
 ```
 
-### Modify: `src/lib/session-pm.ts` — `startSessionPM()`
-
-Same pattern: launch PM's claude with `--sdk-url ws://localhost:{port}/ws/sessions?name={sessionName}-pm` for local sessions.
-
 ### Modify: `src/types.ts` — Add `apiPort` to Config
 
 ```typescript
@@ -219,7 +215,7 @@ The SSE endpoint enables external UIs to get real-time session events without We
 | **Create** | `src/tui/hooks/useStreamLog.ts` | TUI hook for per-session streaming log |
 | **Modify** | `src/api/server.ts` | WS upgrade + new API routes |
 | **Modify** | `src/lib/tmux.ts` | `createSession()` with `--sdk-url`, `sendToSession()` WS-first |
-| **Modify** | `src/lib/session-pm.ts` | PM claude with `--sdk-url` |
+
 | **Modify** | `src/types.ts` | `apiPort` in Config |
 | **Modify** | `src/tui/hooks/useSessions.ts` | Merge WS state, reduce polling, event-driven refresh |
 | **Modify** | `src/tui/views/SessionDetail.tsx` | Live log + tool approval UI |
@@ -237,8 +233,7 @@ Phase 1 (foundation):
 
 Phase 2 (session creation):
   4. src/lib/tmux.ts (createSession + sendToSession)
-  5. src/lib/session-pm.ts
-  6. src/types.ts
+  5. src/types.ts
 
 Phase 3 (TUI):
   7. src/tui/hooks/useWsSessions.ts

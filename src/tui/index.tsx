@@ -178,38 +178,6 @@ export async function exitTuiAndAttachTerminal(sessionName: string, tmuxSessionN
   startTui();
 }
 
-/**
- * Attach to the PM window of a tmux session.
- * No auto-return watcher — user detaches manually with Ctrl+B d.
- */
-export async function exitTuiAndAttachPM(tmuxSessionName: string): Promise<void> {
-  // Unmount Ink and wait for cleanup
-  if (instance) {
-    instance.unmount();
-    instance = null;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-
-  process.stdout.write("\x1B[2J\x1B[H");
-
-  const { spawnSync } = await import("child_process");
-
-  // Select the PM window (should already exist)
-  spawnSync("bash", ["-c", `tmux select-window -t ${tmuxSessionName}:pm 2>/dev/null`], {
-    stdio: "ignore",
-  });
-
-  // Attach to the PM window (blocks until detach)
-  spawnSync("tmux", ["attach", "-t", `${tmuxSessionName}:pm`], {
-    stdio: "inherit",
-    env: process.env,
-  });
-
-  // After detaching, restart TUI
-  process.stdout.write("\x1B[2J\x1B[H");
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  startTui();
-}
 
 export async function exitTuiAndAttachRemote(tmuxSessionName: string, hostName: string, worktreePath?: string): Promise<void> {
   const hostConfig = await getHost(hostName);
@@ -338,39 +306,4 @@ export async function exitTuiAndAttachRemoteTerminal(tmuxSessionName: string, ho
   startTui();
 }
 
-export async function exitTuiAndAttachRemotePM(tmuxSessionName: string, hostName: string): Promise<void> {
-  const hostConfig = await getHost(hostName);
-  if (!hostConfig) return;
-
-  if (instance) {
-    instance.unmount();
-    instance = null;
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-
-  process.stdout.write("\x1B[2J\x1B[H");
-
-  const sshControlOpts = [
-    "-o", "ControlMaster=auto",
-    "-o", "ControlPath=/tmp/csm-ssh-%r@%h:%p",
-    "-o", "ControlPersist=600",
-  ];
-
-  const { spawnSync } = await import("child_process");
-
-  // Select PM window and attach to it
-  const remoteCmd = `tmux select-window -t ${tmuxSessionName}:pm 2>/dev/null; TERM=xterm-256color tmux attach -t ${tmuxSessionName}:pm`;
-
-  spawnSync("ssh", [
-    ...sshControlOpts,
-    "-t", hostConfig.host, `bash -lc '${remoteCmd}'`
-  ], {
-    stdio: "inherit",
-    env: process.env,
-  });
-
-  process.stdout.write("\x1B[2J\x1B[H");
-  await new Promise((resolve) => setTimeout(resolve, 100));
-  startTui();
-}
 

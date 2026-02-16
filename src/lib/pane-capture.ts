@@ -3,9 +3,6 @@ import { exec } from "./ssh";
 /**
  * Tmux pane capture and multiline message utilities.
  *
- * These helpers abstract tmux pane I/O so the PM and monitor don't need to
- * deal with shell escaping or ANSI stripping directly.
- *
  * ## Manual testing
  *
  * capturePane — requires any tmux session:
@@ -17,15 +14,11 @@ import { exec } from "./ssh";
  * stripAnsi:
  *   bun -e 'import{stripAnsi}from"./src/lib/pane-capture";console.log(stripAnsi("\x1b[31mred\x1b[0m"))'
  *   # Expected: "red"
- *
- * sendMultilineToSession — requires PM running (csm pm start):
- *   bun -e 'import{sendMultilineToSession}from"./src/lib/pane-capture";console.log(await sendMultilineToSession("csm-pm","test msg"))'
- *   # Verify: tmux capture-pane -t csm-pm:claude -p -S -5  (should show "Read /tmp/csm-pm-msg-...")
  */
 
 /**
  * Capture the contents of a tmux pane.
- * @param sessionName Full tmux session name (e.g. "csm-pm")
+ * @param sessionName Full tmux session name (e.g. "csm-my-feature")
  * @param lines Number of lines to capture from the bottom (default 50)
  * @param windowName Optional window name (e.g. "claude")
  */
@@ -68,7 +61,7 @@ export async function sendMultilineToSession(
   prefix: string = ""
 ): Promise<string> {
   const ts = Date.now();
-  const tmpPath = `/tmp/csm-pm-msg-${ts}.md`;
+  const tmpPath = `/tmp/csm-msg-${ts}.md`;
   await Bun.write(tmpPath, message);
 
   const instruction = prefix

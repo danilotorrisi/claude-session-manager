@@ -35,7 +35,7 @@ WebSocket upgrade integrated into existing API server:
 - **Endpoint:** `/ws/sessions?name=<session-name>` for WebSocket upgrade
 - **Validation:** Returns 400 if `name` query parameter missing
 - **Lifecycle handlers:** open → handleConnection(), message → handleMessage(), close → handleClose()
-- **Preserved routes:** All existing HTTP endpoints (health, workers, state, PM routes) unchanged
+- **Preserved routes:** All existing HTTP endpoints (health, workers, state) unchanged
 - **Type safety:** Server<WsSocketData> generic for proper TypeScript typing
 
 #### 4. `src/lib/__tests__/ws-integration.test.ts` (new)
@@ -144,24 +144,15 @@ Three critical modifications for WebSocket integration:
 - **autoAcceptClaudeTrust()** handling: Removed for local sessions (--permission-mode replaces it), kept for remote sessions
 - **sendToSession()** (lines 690-703): WebSocket-first approach for local sessions - checks if connected, sends via wsSessionManager, falls back to tmux send-keys when unavailable or for remote sessions
 
-#### 3. `src/lib/session-pm.ts` (modified)
-PM window WebSocket support:
-- **startSessionPM()**: Local PM sessions use `--sdk-url` with `{sessionName}-pm` naming convention
-- Same flag set as main sessions
-- Queues PM initial prompt: "Session PM ready. Monitoring developer session and waiting for instructions."
-- Remote PM sessions unchanged (plain `claude` + autoAcceptClaudeTrust)
-- Fixed variable shadowing (appConfig vs config parameter)
-
-#### 4. `src/lib/__tests__/phase2-integration.test.ts` (new)
+#### 3. `src/lib/__tests__/phase2-integration.test.ts` (new)
 Comprehensive test suite for Phase 2:
 - **22 tests, 60 assertions, 0 failures**
 - **Coverage:**
   - createSession() --sdk-url command construction (default + custom port)
-  - Queued prompt delivery (main + PM sessions)
+  - Queued prompt delivery
   - Remote session preservation (no --sdk-url)
   - autoAcceptClaudeTrust() conditional logic
   - sendToSession() WebSocket-first routing with fallback
-  - startSessionPM() WebSocket support with -pm suffix
   - apiPort configuration handling
 
 ### Verification
@@ -177,7 +168,7 @@ Comprehensive test suite for Phase 2:
   - sendUserMessage delivery over WebSocket
   - Tool approval flow
   - Custom apiPort configuration
-  - Multiple concurrent sessions (main + PM)
+  - Multiple concurrent sessions
   - Code changes verified (3 files, +50/-10 lines)
 
 ### Changes from Original Plan
@@ -233,12 +224,7 @@ if (!hostName) {
 // Fallback to tmux send-keys
 ```
 
-#### 4. `src/lib/session-pm.ts` - `startSessionPM()`
-**Goal:** PM Claude connects via WebSocket too
-
-Same pattern: launch PM's Claude with `--sdk-url ws://localhost:{port}/ws/sessions?name={sessionName}-pm` for local sessions.
-
-#### 5. `src/types.ts` - Add `apiPort` to Config
+#### 4. `src/types.ts` - Add `apiPort` to Config
 ```typescript
 export interface Config {
   // ... existing fields
@@ -258,7 +244,7 @@ export interface Config {
    - Verify Claude connects via WebSocket
    - Verify queued prompt delivered
    - Verify `csm attach test-sdk` works (tmux still functional)
-   - Verify PM window creation with WebSocket
+
 
 3. **Phase 2 Verification:**
    - Start API server: `csm server`
@@ -534,7 +520,7 @@ curl -X POST http://localhost:3000/api/sessions/my-session/approve-tool \
 - [ ] Queued prompt delivered on connection
 - [ ] WebSocket-first message sending
 - [ ] Tmux fallback when WS unavailable
-- [ ] PM window creation with WS
+
 - [ ] Manual tmux attach still works
 - [ ] Remote sessions unchanged
 

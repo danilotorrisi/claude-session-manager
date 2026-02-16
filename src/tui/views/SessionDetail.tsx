@@ -12,7 +12,7 @@ import {
 } from "../../lib/worktree";
 import { getDefaultRepo } from "../../lib/config";
 import { cleanupStateFile } from "../../lib/claude-state";
-import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal, exitTuiAndAttachPM, exitTuiAndAttachRemote, exitTuiAndAttachRemoteTerminal, exitTuiAndAttachRemotePM } from "../index";
+import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal, exitTuiAndAttachRemote, exitTuiAndAttachRemoteTerminal } from "../index";
 import { colors } from "../theme";
 import { useStreamLog } from "../hooks/useStreamLog";
 import { useWsSessions } from "../hooks/useWsSessions";
@@ -87,26 +87,6 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
       await exitTuiAndAttachTerminal(session.name, tmuxSessionName, worktreePath || undefined);
     }
   }, [session, worktreePath]);
-
-  const handleAttachPM = useCallback(async () => {
-    if (!session) return;
-
-    const { sessionPMExists } = await import("../../lib/session-pm");
-    const hasPM = await sessionPMExists(session.name, session.host);
-
-    if (!hasPM) {
-      dispatch({ type: "SET_ERROR", error: `Session "${session.name}" has no PM window` });
-      return;
-    }
-
-    const tmuxSessionName = getSessionName(session.name);
-
-    if (session.host) {
-      await exitTuiAndAttachRemotePM(tmuxSessionName, session.host);
-    } else {
-      await exitTuiAndAttachPM(tmuxSessionName);
-    }
-  }, [session, dispatch]);
 
   const handleKill = useCallback(async () => {
     if (!session) return;
@@ -183,8 +163,6 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
       handleAttach();
     } else if (input === "t") {
       handleAttachTerminal();
-    } else if (input === "w") {
-      handleAttachPM();
     } else if (input === "k") {
       handleKill();
     }

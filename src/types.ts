@@ -48,7 +48,6 @@ export interface Config {
   r2?: R2Config;
   feedbackEnabled?: boolean;
   claudeSettings?: ClaudeSettingsConfig;
-  pm?: Partial<PMConfig>;
   apiPort?: number; // Default: 3000
 }
 
@@ -117,48 +116,3 @@ export interface KillOptions {
   deleteBranch?: boolean;
 }
 
-// PM (Project Manager) types
-
-export interface PMConfig {
-  projectName: string;
-  repoPath: string;
-  developerIdleThresholdS: number;
-  maxDeveloperSessions: number;
-  escalationUrl?: string;
-}
-
-export interface PMRuntimeState {
-  status: "running" | "stopped" | "error";
-  currentPlan?: PMPlan;
-  activeSessions: string[];
-  planningSession?: string;
-  escalations: EscalationMessage[];
-  startedAt: string;
-}
-
-export interface PlanStep {
-  id: string;
-  title: string;
-  description: string;
-  status: "pending" | "in_progress" | "completed" | "failed";
-  sessionName?: string;
-  result?: string;
-}
-
-export interface PMPlan {
-  id: string;
-  goal: string;
-  steps: PlanStep[];
-  createdAt: string;
-  completedAt?: string;
-}
-
-export interface EscalationMessage {
-  id: string;
-  timestamp: string;
-  severity: "info" | "warning" | "critical";
-  message: string;
-  context?: string;
-  awaitingResponse: boolean;
-  response?: string;
-}

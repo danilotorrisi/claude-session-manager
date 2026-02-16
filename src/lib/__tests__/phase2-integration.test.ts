@@ -4,7 +4,6 @@
  * Tests the WebSocket-first integration for local sessions:
  * - createSession() uses --sdk-url for local, plain claude for remote
  * - sendToSession() tries WebSocket first, falls back to tmux
- * - startSessionPM() uses --sdk-url for local PM windows
  * - autoAcceptClaudeTrust() only called for remote sessions
  * - apiPort configuration (default 3000 and custom)
  */
@@ -74,7 +73,6 @@ mock.module("../worktree", () => ({
 
 // Import after mocking
 const { createSession, sendToSession, autoAcceptClaudeTrust, getSessionName } = await import("../tmux");
-const { startSessionPM } = await import("../session-pm");
 
 // ─── Test suite ────────────────────────────────────────────────────
 
@@ -150,15 +148,9 @@ describe("Phase 2: WebSocket-first integration", () => {
     test("local session queues initial prompt via wsSessionManager", async () => {
       await createSession("prompt-test", "/tmp/work");
 
-      // createSession queues a prompt for the main claude window,
-      // and startSessionPM (called internally) queues one for the PM window
       const mainPrompt = wsQueuedPrompts.find((p) => p.name === "prompt-test");
       expect(mainPrompt).toBeDefined();
       expect(mainPrompt!.text).toContain("CSM session ready");
-
-      const pmPrompt = wsQueuedPrompts.find((p) => p.name === "prompt-test-pm");
-      expect(pmPrompt).toBeDefined();
-      expect(pmPrompt!.text).toContain("Session PM ready");
     });
 
     test("remote session does NOT queue prompt", async () => {
@@ -292,86 +284,7 @@ describe("Phase 2: WebSocket-first integration", () => {
     });
   });
 
-  // ─── 6. startSessionPM: WebSocket for local PM windows ────────
-
-  describe("startSessionPM() WebSocket for PM windows", () => {
-    test("local PM uses --sdk-url with '-pm' suffix in session name", async () => {
-      await startSessionPM("my-session", "/tmp/work", {
-        projectName: "test-project",
-      });
-
-      const pmLaunchCmd = execCalls.find(
-        (c) =>
-          c.command.includes("send-keys") &&
-          c.command.includes(":pm") &&
-          c.command.includes("--sdk-url")
-      );
-
-      expect(pmLaunchCmd).toBeDefined();
-      expect(pmLaunchCmd!.command).toContain("ws://localhost:3000/ws/sessions?name=my-session-pm");
-      expect(pmLaunchCmd!.command).toContain("--print");
-      expect(pmLaunchCmd!.command).toContain("--output-format stream-json");
-      expect(pmLaunchCmd!.command).toContain("--permission-mode acceptEdits");
-    });
-
-    test("local PM uses custom apiPort from config", async () => {
-      mockConfig = { apiPort: 9090 };
-
-      await startSessionPM("port-test", "/tmp/work", {});
-
-      const pmLaunchCmd = execCalls.find(
-        (c) => c.command.includes("--sdk-url") && c.command.includes(":pm")
-      );
-
-      expect(pmLaunchCmd).toBeDefined();
-      expect(pmLaunchCmd!.command).toContain("ws://localhost:9090/ws/sessions?name=port-test-pm");
-    });
-
-    test("local PM queues initial prompt for PM session", async () => {
-      await startSessionPM("pm-prompt-test", "/tmp/work", {});
-
-      const pmPrompts = wsQueuedPrompts.filter((p) => p.name === "pm-prompt-test-pm");
-      expect(pmPrompts).toHaveLength(1);
-      expect(pmPrompts[0].text).toContain("Session PM ready");
-    });
-
-    test("remote PM launches plain 'claude' without --sdk-url", async () => {
-      await startSessionPM("remote-pm", "/tmp/work", {}, "my-server");
-
-      const pmLaunchCmd = execCalls.find(
-        (c) =>
-          c.command.includes("send-keys") &&
-          c.command.includes(":pm") &&
-          c.command.includes("claude")
-      );
-
-      expect(pmLaunchCmd).toBeDefined();
-      expect(pmLaunchCmd!.command).not.toContain("--sdk-url");
-      expect(pmLaunchCmd!.hostName).toBe("my-server");
-    });
-
-    test("remote PM calls autoAcceptClaudeTrust", async () => {
-      await startSessionPM("remote-pm-trust", "/tmp/work", {}, "my-server");
-
-      const trustCmds = execCalls.filter((c) =>
-        c.command.includes("csm-trust-watcher")
-      );
-
-      expect(trustCmds.length).toBeGreaterThan(0);
-    });
-
-    test("local PM does NOT call autoAcceptClaudeTrust", async () => {
-      await startSessionPM("local-pm-no-trust", "/tmp/work", {});
-
-      const trustCmds = execCalls.filter((c) =>
-        c.command.includes("csm-trust-watcher")
-      );
-
-      expect(trustCmds).toHaveLength(0);
-    });
-  });
-
-  // ─── 7. apiPort configuration ──────────────────────────────────
+  // ─── 6. apiPort configuration ──────────────────────────────────
 
   describe("apiPort configuration", () => {
     test("default apiPort is 3000 when not configured", async () => {
@@ -394,34 +307,9 @@ describe("Phase 2: WebSocket-first integration", () => {
       expect(claudeCmd!.command).toContain("ws://localhost:4567/");
     });
 
-    test("apiPort is consistent between createSession and startSessionPM", async () => {
-      mockConfig = { apiPort: 5555 };
-
-      // Reset calls
-      execCalls = [];
-
-      await createSession("consistent-port", "/tmp/work");
-
-      const createSdkUrl = execCalls.find(
-        (c) => c.command.includes("--sdk-url") && c.command.includes(":claude")
-      );
-
-      execCalls = [];
-
-      await startSessionPM("consistent-port", "/tmp/work", {});
-
-      const pmSdkUrl = execCalls.find(
-        (c) => c.command.includes("--sdk-url") && c.command.includes(":pm")
-      );
-
-      expect(createSdkUrl).toBeDefined();
-      expect(pmSdkUrl).toBeDefined();
-      expect(createSdkUrl!.command).toContain("ws://localhost:5555/");
-      expect(pmSdkUrl!.command).toContain("ws://localhost:5555/");
-    });
   });
 
-  // ─── 8. getSessionName helper ──────────────────────────────────
+  // ─── 7. getSessionName helper ──────────────────────────────────
 
   describe("getSessionName helper", () => {
     test("prefixes with csm-", () => {
