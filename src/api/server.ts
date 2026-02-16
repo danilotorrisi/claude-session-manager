@@ -1,6 +1,7 @@
 import type { Server } from "bun";
 import type { WorkerEvent, WorkerHostInfo } from "../worker/types";
 import { handlePMCommand, handlePMStatus, handlePMEscalationResponse } from "./pm-routes";
+import { wsSessionManager, type WsSocketData } from "../lib/ws-session-manager";
 
 // In-memory storage for demo (in production, use a DB)
 interface WorkerInfo {
@@ -189,10 +190,10 @@ function handleGetState(): Response {
   );
 }
 
-export async function startApiServer(port: number = 3000): Promise<Server> {
-  const server = Bun.serve({
+export async function startApiServer(port: number = 3000): Promise<Server<WsSocketData>> {
+  const server = Bun.serve<WsSocketData>({
     port,
-    async fetch(req) {
+    async fetch(req, server) {
       const url = new URL(req.url);
 
       // CORS headers for development
@@ -204,6 +205,24 @@ export async function startApiServer(port: number = 3000): Promise<Server> {
 
       if (req.method === "OPTIONS") {
         return new Response(null, { status: 204, headers });
+      }
+
+      // WebSocket upgrade for Claude Code --sdk-url connections
+      if (url.pathname === "/ws/sessions") {
+        const sessionName = url.searchParams.get("name");
+        if (!sessionName) {
+          return new Response(
+            JSON.stringify({ error: "Missing 'name' query parameter" }),
+            { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        }
+        const upgraded = server.upgrade(req, {
+          data: { sessionName },
+        });
+        if (!upgraded) {
+          return new Response("WebSocket upgrade failed", { status: 400, headers });
+        }
+        return;
       }
 
       // Health check
@@ -312,12 +331,24 @@ export async function startApiServer(port: number = 3000): Promise<Server> {
 
       return new Response("Not Found", { status: 404, headers });
     },
+    websocket: {
+      open(ws) {
+        wsSessionManager.handleConnection(ws);
+      },
+      message(ws, data) {
+        wsSessionManager.handleMessage(ws, data);
+      },
+      close(ws) {
+        wsSessionManager.handleClose(ws);
+      },
+    },
   });
 
   console.log(`[Master] API server listening on http://localhost:${port}`);
   console.log(`[Master] Health: http://localhost:${port}/api/health`);
   console.log(`[Master] Workers: http://localhost:${port}/api/workers`);
   console.log(`[Master] State: http://localhost:${port}/api/state`);
+  console.log(`[Master] WebSocket: ws://localhost:${port}/ws/sessions?name=<session>`);
 
   return server;
 }
