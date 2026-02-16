@@ -8,7 +8,7 @@
  * - apiPort configuration (default 3000 and custom)
  */
 
-import { describe, expect, test, beforeEach, afterEach, mock, spyOn } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach, afterAll, mock, spyOn } from "bun:test";
 
 // Track all exec() calls to verify command construction
 let execCalls: Array<{ command: string; hostName?: string }> = [];
@@ -43,6 +43,7 @@ const mockIsFeedbackEnabled = mock(async () => false);
 let wsConnectedSessions = new Set<string>();
 let wsSentMessages: Array<{ name: string; text: string }> = [];
 let wsQueuedPrompts: Array<{ name: string; text: string }> = [];
+let wsStoredSessions = new Map<string, any>();
 
 const mockWsSessionManager = {
   isConnected: (name: string) => wsConnectedSessions.has(name),
@@ -53,6 +54,15 @@ const mockWsSessionManager = {
   queueInitialPrompt: (name: string, text: string) => {
     wsQueuedPrompts.push({ name, text });
   },
+  // Add methods needed by phase4 tests to prevent mock leakage issues
+  getAllSessions: () => wsStoredSessions,
+  getSessionState: (name: string) => wsStoredSessions.get(name),
+  removeSession: (name: string) => wsStoredSessions.delete(name),
+  handleConnection: () => {},
+  handleMessage: () => {},
+  handleClose: () => {},
+  on: () => () => {}, // Returns unsubscribe function
+  respondToToolApproval: () => {},
 };
 
 // Apply mocks
@@ -83,6 +93,7 @@ describe("Phase 2: WebSocket-first integration", () => {
     wsConnectedSessions = new Set();
     wsSentMessages = [];
     wsQueuedPrompts = [];
+    wsStoredSessions = new Map();
     mockConfig = {};
     mockExec.mockClear();
     mockLoadConfig.mockClear();
@@ -315,5 +326,16 @@ describe("Phase 2: WebSocket-first integration", () => {
     test("prefixes with csm-", () => {
       expect(getSessionName("my-session")).toBe("csm-my-session");
     });
+  });
+
+  // Clean up mocks to prevent leakage into other test files
+  afterAll(async () => {
+    // Restore all mocks
+    mock.restore();
+    // Force re-import of real modules to clear module cache
+    await import("../ssh?t=" + Date.now());
+    await import("../config?t=" + Date.now());
+    await import("../ws-session-manager?t=" + Date.now());
+    await import("../worktree?t=" + Date.now());
   });
 });
