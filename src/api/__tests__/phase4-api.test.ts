@@ -8,7 +8,7 @@
  *   POST /api/sessions/:name/approve-tool — approve/deny tool use requests
  */
 
-import { describe, expect, test, beforeEach, afterEach, mock } from "bun:test";
+import { describe, expect, test, beforeAll, beforeEach, afterEach, mock } from "bun:test";
 import type { Server } from "bun";
 import { startApiServer, resetMasterState } from "../server";
 import { wsSessionManager, type WsSocketData } from "../../lib/ws-session-manager";
@@ -24,9 +24,17 @@ import type {
 
 let port: number;
 let server: Server<WsSocketData>;
+let authToken: string;
 
 function apiUrl(path: string): string {
   return `http://localhost:${port}${path}`;
+}
+
+function authHeaders(): HeadersInit {
+  return {
+    'Authorization': `Bearer ${authToken}`,
+    'Content-Type': 'application/json',
+  };
 }
 
 function wsUrl(sessionName: string): string {
@@ -176,6 +184,11 @@ async function setupWsSession(
 // ─── Test suite ─────────────────────────────────────────────────────────────
 
 describe("Phase 4 API Endpoints", () => {
+  beforeAll(async () => {
+    const { getOrCreateDefaultToken } = await import("../../lib/config");
+    authToken = await getOrCreateDefaultToken();
+  });
+
   beforeEach(async () => {
     resetMasterState();
     for (const [name] of wsSessionManager.getAllSessions()) {
@@ -196,7 +209,9 @@ describe("Phase 4 API Endpoints", () => {
 
   describe("GET /api/sessions", () => {
     test("returns 200 with sessions array", async () => {
-      const response = await fetch(apiUrl("/api/sessions"));
+      const response = await fetch(apiUrl("/api/sessions"), {
+        headers: authHeaders(),
+      });
       expect(response.status).toBe(200);
 
       const body = await response.json();
@@ -208,7 +223,9 @@ describe("Phase 4 API Endpoints", () => {
       // Connect a WS session so wsSessionManager knows about it
       const ws = await setupWsSession("test-merge", { working: true });
 
-      const response = await fetch(apiUrl("/api/sessions"));
+      const response = await fetch(apiUrl("/api/sessions"), {
+        headers: authHeaders(),
+      });
       const body = await response.json();
 
       // The session list comes from tmux (which won't have our test session),
@@ -222,7 +239,9 @@ describe("Phase 4 API Endpoints", () => {
     });
 
     test("includes CORS headers", async () => {
-      const response = await fetch(apiUrl("/api/sessions"));
+      const response = await fetch(apiUrl("/api/sessions"), {
+        headers: authHeaders(),
+      });
       expect(response.headers.get("Access-Control-Allow-Origin")).toBe("*");
     });
   });
@@ -240,7 +259,7 @@ describe("Phase 4 API Endpoints", () => {
 
       const response = await fetch(apiUrl("/api/sessions/msg-ws/message"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         body: JSON.stringify({ text: "Hello via API" }),
       });
 
@@ -264,7 +283,7 @@ describe("Phase 4 API Endpoints", () => {
       // No WS session established — should try tmux fallback
       const response = await fetch(apiUrl("/api/sessions/no-ws-session/message"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         body: JSON.stringify({ text: "Hello via tmux" }),
       });
 
@@ -277,7 +296,7 @@ describe("Phase 4 API Endpoints", () => {
     test("returns 400 when text field is missing", async () => {
       const response = await fetch(apiUrl("/api/sessions/any-session/message"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         body: JSON.stringify({}),
       });
 
@@ -289,7 +308,7 @@ describe("Phase 4 API Endpoints", () => {
     test("returns 400 when text field is not a string", async () => {
       const response = await fetch(apiUrl("/api/sessions/any-session/message"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         body: JSON.stringify({ text: 123 }),
       });
 
@@ -301,7 +320,7 @@ describe("Phase 4 API Endpoints", () => {
     test("returns 400 for invalid JSON body", async () => {
       const response = await fetch(apiUrl("/api/sessions/any-session/message"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         body: "not valid json{",
       });
 
@@ -313,7 +332,7 @@ describe("Phase 4 API Endpoints", () => {
 
       const response = await fetch(apiUrl("/api/sessions/special-name/message"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         body: JSON.stringify({ text: "Hello" }),
       });
 
@@ -334,6 +353,7 @@ describe("Phase 4 API Endpoints", () => {
       const controller = new AbortController();
 
       const response = await fetch(apiUrl("/api/sessions/stream-test/stream"), {
+        headers: authHeaders(),
         signal: controller.signal,
       });
 
@@ -362,6 +382,7 @@ describe("Phase 4 API Endpoints", () => {
 
       const controller = new AbortController();
       const response = await fetch(apiUrl("/api/sessions/snapshot-test/stream"), {
+        headers: authHeaders(),
         signal: controller.signal,
       });
 
@@ -400,6 +421,7 @@ describe("Phase 4 API Endpoints", () => {
 
       const controller = new AbortController();
       const response = await fetch(apiUrl("/api/sessions/realtime-test/stream"), {
+        headers: authHeaders(),
         signal: controller.signal,
       });
 
@@ -441,6 +463,7 @@ describe("Phase 4 API Endpoints", () => {
 
       const controller = new AbortController();
       const response = await fetch(apiUrl("/api/sessions/target-session/stream"), {
+        headers: authHeaders(),
         signal: controller.signal,
       });
 
@@ -482,6 +505,7 @@ describe("Phase 4 API Endpoints", () => {
     test("includes CORS and cache headers", async () => {
       const controller = new AbortController();
       const response = await fetch(apiUrl("/api/sessions/header-test/stream"), {
+        headers: authHeaders(),
         signal: controller.signal,
       });
 
@@ -506,7 +530,7 @@ describe("Phase 4 API Endpoints", () => {
 
       const response = await fetch(apiUrl("/api/sessions/approve-test/approve-tool"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         body: JSON.stringify({
           requestId: "req-tool-001",
           action: "allow",
@@ -544,7 +568,7 @@ describe("Phase 4 API Endpoints", () => {
 
       const response = await fetch(apiUrl("/api/sessions/deny-test/approve-tool"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         body: JSON.stringify({
           requestId: "req-tool-001",
           action: "deny",
@@ -570,7 +594,7 @@ describe("Phase 4 API Endpoints", () => {
 
       const response = await fetch(apiUrl("/api/sessions/missing-req-id/approve-tool"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         body: JSON.stringify({ action: "allow" }),
       });
 
@@ -587,7 +611,7 @@ describe("Phase 4 API Endpoints", () => {
 
       const response = await fetch(apiUrl("/api/sessions/missing-action/approve-tool"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         body: JSON.stringify({ requestId: "req-001" }),
       });
 
@@ -604,7 +628,7 @@ describe("Phase 4 API Endpoints", () => {
 
       const response = await fetch(apiUrl("/api/sessions/bad-action/approve-tool"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         body: JSON.stringify({ requestId: "req-001", action: "maybe" }),
       });
 
@@ -619,7 +643,7 @@ describe("Phase 4 API Endpoints", () => {
     test("returns 400 when session is not WS-connected", async () => {
       const response = await fetch(apiUrl("/api/sessions/not-connected/approve-tool"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         body: JSON.stringify({ requestId: "req-001", action: "allow" }),
       });
 
@@ -631,7 +655,7 @@ describe("Phase 4 API Endpoints", () => {
     test("returns 400 for invalid JSON body", async () => {
       const response = await fetch(apiUrl("/api/sessions/any/approve-tool"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: authHeaders(),
         body: "not json{{{",
       });
 
@@ -643,7 +667,9 @@ describe("Phase 4 API Endpoints", () => {
 
   describe("cross-cutting concerns", () => {
     test("unknown routes still return 404", async () => {
-      const response = await fetch(apiUrl("/api/sessions/foo/nonexistent"));
+      const response = await fetch(apiUrl("/api/sessions/foo/nonexistent"), {
+        headers: authHeaders(),
+      });
       expect(response.status).toBe(404);
     });
 

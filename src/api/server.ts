@@ -286,6 +286,26 @@ export async function startApiServer(port: number = 3000): Promise<Server<WsSock
       }
 
       // ─── Session API endpoints ──────────────────────────
+      // Auth middleware: validate token for session endpoints
+      const isSessionEndpoint = url.pathname.startsWith("/api/sessions");
+      if (isSessionEndpoint) {
+        const authToken = req.headers.get("Authorization")?.replace("Bearer ", "");
+        if (!authToken) {
+          return new Response(
+            JSON.stringify({ error: "Unauthorized - missing token" }),
+            { status: 401, headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        }
+
+        const { validateApiToken } = await import("../lib/config");
+        const valid = await validateApiToken(authToken);
+        if (!valid) {
+          return new Response(
+            JSON.stringify({ error: "Unauthorized - invalid token" }),
+            { status: 401, headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        }
+      }
 
       // GET /api/sessions — list all sessions with merged WS state
       if (url.pathname === "/api/sessions" && req.method === "GET") {
@@ -457,6 +477,85 @@ export async function startApiServer(port: number = 3000): Promise<Server<WsSock
           return new Response(
             JSON.stringify({ error: "Invalid request" }),
             { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        }
+      }
+
+      // ─── Auth endpoints ────────────────────────────────────────
+
+      // GET /api/auth/setup — get or create default API token (first-time setup)
+      if (url.pathname === "/api/auth/setup" && req.method === "GET") {
+        try {
+          const { getOrCreateDefaultToken } = await import("../lib/config");
+          const token = await getOrCreateDefaultToken();
+          return new Response(
+            JSON.stringify({ token }),
+            { headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        } catch (error) {
+          return new Response(
+            JSON.stringify({ error: "Failed to setup token" }),
+            { status: 500, headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        }
+      }
+
+      // POST /api/auth/validate — validate an API token
+      if (url.pathname === "/api/auth/validate" && req.method === "POST") {
+        try {
+          const { token } = await req.json();
+          if (!token) {
+            return new Response(
+              JSON.stringify({ valid: false, error: "Missing token" }),
+              { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          }
+
+          const { validateApiToken } = await import("../lib/config");
+          const valid = await validateApiToken(token);
+
+          return new Response(
+            JSON.stringify({ valid }),
+            { headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        } catch (error) {
+          return new Response(
+            JSON.stringify({ valid: false, error: "Invalid request" }),
+            { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        }
+      }
+
+      // GET /api/auth/tokens — list all API tokens
+      if (url.pathname === "/api/auth/tokens" && req.method === "GET") {
+        try {
+          // Check auth
+          const authToken = req.headers.get("Authorization")?.replace("Bearer ", "");
+          if (!authToken) {
+            return new Response(
+              JSON.stringify({ error: "Unauthorized" }),
+              { status: 401, headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          }
+
+          const { validateApiToken, listApiTokens } = await import("../lib/config");
+          const valid = await validateApiToken(authToken);
+          if (!valid) {
+            return new Response(
+              JSON.stringify({ error: "Invalid token" }),
+              { status: 401, headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          }
+
+          const tokens = await listApiTokens();
+          return new Response(
+            JSON.stringify({ tokens }),
+            { headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        } catch (error) {
+          return new Response(
+            JSON.stringify({ error: "Failed to list tokens" }),
+            { status: 500, headers: { ...headers, "Content-Type": "application/json" } }
           );
         }
       }

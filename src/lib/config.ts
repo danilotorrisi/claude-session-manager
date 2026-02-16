@@ -289,4 +289,107 @@ export async function setFeedbackEnabled(enabled: boolean): Promise<void> {
 }
 
 
+// ─── API Token Management ───────────────────────────────────────────────────
+
+/**
+ * Generate a secure random API token.
+ */
+export function generateApiToken(): string {
+  const buffer = new Uint8Array(32);
+  crypto.getRandomValues(buffer);
+  return Array.from(buffer)
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+/**
+ * Get or create a default API token (for first-time setup).
+ * Returns the token string.
+ */
+export async function getOrCreateDefaultToken(): Promise<string> {
+  const config = await loadConfig();
+
+  // Check if we already have a default token
+  if (config.apiTokens && config.apiTokens.length > 0) {
+    return config.apiTokens[0].token;
+  }
+
+  // Generate new token
+  const token = generateApiToken();
+  const apiToken: import('../types').ApiToken = {
+    token,
+    name: 'Default',
+    created: new Date().toISOString(),
+  };
+
+  config.apiTokens = [apiToken];
+  await saveConfig(config);
+
+  return token;
+}
+
+/**
+ * Validate an API token and update its last used time.
+ * Returns true if valid, false otherwise.
+ */
+export async function validateApiToken(token: string): Promise<boolean> {
+  const config = await loadConfig();
+
+  if (!config.apiTokens || config.apiTokens.length === 0) {
+    return false;
+  }
+
+  const tokenObj = config.apiTokens.find((t) => t.token === token);
+  if (!tokenObj) {
+    return false;
+  }
+
+  // Update last used time
+  tokenObj.lastUsed = new Date().toISOString();
+  await saveConfig(config);
+
+  return true;
+}
+
+/**
+ * Add a new API token.
+ */
+export async function addApiToken(name: string): Promise<string> {
+  const config = await loadConfig();
+  const token = generateApiToken();
+
+  const apiToken: import('../types').ApiToken = {
+    token,
+    name,
+    created: new Date().toISOString(),
+  };
+
+  config.apiTokens = [...(config.apiTokens || []), apiToken];
+  await saveConfig(config);
+
+  return token;
+}
+
+/**
+ * Remove an API token by its value.
+ */
+export async function removeApiToken(token: string): Promise<void> {
+  const config = await loadConfig();
+  config.apiTokens = (config.apiTokens || []).filter((t) => t.token !== token);
+  await saveConfig(config);
+}
+
+/**
+ * List all API tokens (without exposing the full token values).
+ */
+export async function listApiTokens(): Promise<Array<{name: string; created: string; lastUsed?: string; tokenPreview: string}>> {
+  const config = await loadConfig();
+  return (config.apiTokens || []).map((t) => ({
+    name: t.name,
+    created: t.created,
+    lastUsed: t.lastUsed,
+    tokenPreview: `${t.token.slice(0, 8)}...${t.token.slice(-4)}`,
+  }));
+}
+
 export { CONFIG_DIR, CONFIG_FILE };

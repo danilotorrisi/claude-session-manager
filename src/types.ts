@@ -38,6 +38,13 @@ export interface ClaudeSettingsConfig {
   denyPatterns?: string[];
 }
 
+export interface ApiToken {
+  token: string;
+  name: string;
+  created: string;
+  lastUsed?: string;
+}
+
 export interface Config {
   defaultRepo?: string;
   worktreeBase: string;
@@ -49,6 +56,7 @@ export interface Config {
   feedbackEnabled?: boolean;
   claudeSettings?: ClaudeSettingsConfig;
   apiPort?: number; // Default: 3000
+  apiTokens?: ApiToken[];
 }
 
 export interface GitStats {

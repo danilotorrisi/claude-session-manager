@@ -10,6 +10,9 @@
 
 import { describe, expect, test, beforeEach, afterEach, afterAll, mock, spyOn } from "bun:test";
 
+// Import real auth functions BEFORE mocking to avoid infinite recursion
+const { getOrCreateDefaultToken: realGetOrCreateDefaultToken, validateApiToken: realValidateApiToken } = await import("../config");
+
 // Track all exec() calls to verify command construction
 let execCalls: Array<{ command: string; hostName?: string }> = [];
 let execResults: Map<string, { success: boolean; stdout: string; stderr: string; exitCode: number }> = new Map();
@@ -34,10 +37,30 @@ let mockConfig: Record<string, unknown> = {};
 const mockLoadConfig = mock(async () => ({
   worktreeBase: "/tmp/csm-worktrees",
   hosts: {},
+  apiTokens: [
+    {
+      token: "test-token-12345678901234567890123456789012",
+      name: "Test Token",
+      created: new Date().toISOString(),
+    },
+  ],
   ...mockConfig,
 }));
 
 const mockIsFeedbackEnabled = mock(async () => false);
+
+// Pass through to real auth functions
+const mockGetOrCreateDefaultToken = mock(async () => {
+  return realGetOrCreateDefaultToken();
+});
+const mockValidateApiToken = mock(async (token: string) => {
+  return realValidateApiToken(token);
+});
+
+// No-op mock for saveConfig to prevent writing to actual config file
+const mockSaveConfig = mock(async () => {
+  // No-op
+});
 
 // Mock ws-session-manager
 let wsConnectedSessions = new Set<string>();
@@ -70,6 +93,9 @@ mock.module("../ssh", () => ({ exec: mockExec }));
 mock.module("../config", () => ({
   loadConfig: mockLoadConfig,
   isFeedbackEnabled: mockIsFeedbackEnabled,
+  getOrCreateDefaultToken: mockGetOrCreateDefaultToken,
+  validateApiToken: mockValidateApiToken,
+  saveConfig: mockSaveConfig,
 }));
 mock.module("../ws-session-manager", () => ({
   wsSessionManager: mockWsSessionManager,
@@ -98,6 +124,9 @@ describe("Phase 2: WebSocket-first integration", () => {
     mockExec.mockClear();
     mockLoadConfig.mockClear();
     mockIsFeedbackEnabled.mockClear();
+    mockGetOrCreateDefaultToken.mockClear();
+    mockValidateApiToken.mockClear();
+    mockSaveConfig.mockClear();
   });
 
   // ─── 1. createSession: --sdk-url for local sessions ────────────
