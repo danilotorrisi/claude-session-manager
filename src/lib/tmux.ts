@@ -80,7 +80,7 @@ export async function listSessions(hostName?: string): Promise<Session[]> {
           }
         }
       }
-      session.gitStats = await getGitStats(wtPath, hostName);
+      session.gitStats = await getDetailedGitStats(wtPath, hostName);
     } catch {
       // Skip state enrichment on error
     }
@@ -587,6 +587,8 @@ export async function createSession(
       const config = await loadConfig();
       const apiPort = config.apiPort ?? 3000;
       const sdkUrl = `ws://localhost:${apiPort}/ws/sessions?name=${encodeURIComponent(name)}`;
+      // Unset CLAUDECODE env var to prevent "nested session" detection when launched from within Claude Code
+      await exec(`tmux send-keys -t ${sessionName}:claude 'unset CLAUDECODE' Enter`, hostName);
       const claudeCmd = `claude --sdk-url '${sdkUrl}' --print --output-format stream-json --input-format stream-json --verbose --permission-mode acceptEdits`;
       await exec(`tmux send-keys -t ${sessionName}:claude '${claudeCmd.replace(/'/g, "'\\''")}' Enter`, hostName);
 

@@ -18,12 +18,29 @@ interface MasterState {
 
 const HEARTBEAT_ONLINE_THRESHOLD = 60_000;  // 60s
 const HEARTBEAT_STALE_THRESHOLD = 120_000;  // 120s
+const SESSION_EVENT_BUFFER_SIZE = 100;  // Keep last 100 events per session
 
 const state: MasterState = {
   workers: new Map(),
   events: [],
   sessions: new Map(),
 };
+
+// Buffer recent WebSocket events per session for SSE replay on connect
+const sessionEventBuffer = new Map<string, Array<{ event: Record<string, unknown>; timestamp: number }>>();
+
+function bufferSessionEvent(sessionName: string, event: Record<string, unknown>) {
+  let buffer = sessionEventBuffer.get(sessionName);
+  if (!buffer) {
+    buffer = [];
+    sessionEventBuffer.set(sessionName, buffer);
+  }
+  buffer.push({ event, timestamp: Date.now() });
+  // Keep only last N events
+  if (buffer.length > SESSION_EVENT_BUFFER_SIZE) {
+    buffer.splice(0, buffer.length - SESSION_EVENT_BUFFER_SIZE);
+  }
+}
 
 /** Reset in-memory state — for testing only. */
 export function resetMasterState(): void {
@@ -190,8 +207,16 @@ function handleGetState(): Response {
 }
 
 export async function startApiServer(port: number = 3000): Promise<Server<WsSocketData>> {
+  // Buffer all session events for SSE replay
+  wsSessionManager.on((event) => {
+    if ("sessionName" in event && typeof event.sessionName === "string") {
+      bufferSessionEvent(event.sessionName, event as Record<string, unknown>);
+    }
+  });
+
   const server = Bun.serve<WsSocketData>({
     port,
+    idleTimeout: 0, // Disable idle timeout for SSE long-lived connections
     async fetch(req, server) {
       const url = new URL(req.url);
 
@@ -199,7 +224,7 @@ export async function startApiServer(port: number = 3000): Promise<Server<WsSock
       const headers = {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
       };
 
       if (req.method === "OPTIONS") {
@@ -285,11 +310,36 @@ export async function startApiServer(port: number = 3000): Promise<Server<WsSock
         return response;
       }
 
+      // GET /api/config — return CSM config (projects, hosts)
+      if (url.pathname === "/api/config" && req.method === "GET") {
+        try {
+          const { loadConfig } = await import("../lib/config");
+          const config = await loadConfig();
+          // Strip sensitive data (tokens) before sending
+          const safeConfig = {
+            projects: config.projects ?? [],
+            hosts: config.hosts ?? {},
+            projectsBase: config.projectsBase,
+            hasLinear: !!config.linearApiKey,
+          };
+          return new Response(
+            JSON.stringify({ config: safeConfig }),
+            { headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        } catch (error) {
+          return new Response(
+            JSON.stringify({ error: "Failed to load config" }),
+            { status: 500, headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        }
+      }
+
       // ─── Session API endpoints ──────────────────────────
       // Auth middleware: validate token for session endpoints
       const isSessionEndpoint = url.pathname.startsWith("/api/sessions");
       if (isSessionEndpoint) {
-        const authToken = req.headers.get("Authorization")?.replace("Bearer ", "");
+        // Support token via query param for SSE (EventSource can't send headers)
+        const authToken = req.headers.get("Authorization")?.replace("Bearer ", "") || url.searchParams.get("token");
         if (!authToken) {
           return new Response(
             JSON.stringify({ error: "Unauthorized - missing token" }),
@@ -332,6 +382,55 @@ export async function startApiServer(port: number = 3000): Promise<Server<WsSock
         } catch (error) {
           return new Response(
             JSON.stringify({ error: "Failed to list sessions" }),
+            { status: 500, headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        }
+      }
+
+      // POST /api/sessions — create a new session
+      if (url.pathname === "/api/sessions" && req.method === "POST") {
+        try {
+          const body = await req.json();
+          const { name, repo, host, project } = body;
+
+          if (!name || typeof name !== "string") {
+            return new Response(
+              JSON.stringify({ error: "Missing or invalid 'name' field" }),
+              { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          }
+
+          const { createSession } = await import("../lib/tmux");
+          const { createWorktree } = await import("../lib/worktree");
+          const { loadConfig } = await import("../lib/config");
+
+          const config = await loadConfig();
+          const projectObj = project ? config.projects?.find((p: any) => p.name === project) : undefined;
+          const repoPath = repo || projectObj?.repoPath || undefined;
+          const hostName = host === "local" ? undefined : host;
+
+          let workingDir = repoPath || process.cwd();
+          if (repoPath) {
+            try {
+              const wt = await createWorktree(repoPath, name);
+              workingDir = wt.path;
+            } catch (e) {
+              console.warn(`[Master] Worktree creation failed: ${e}`);
+            }
+          }
+
+          const result = await createSession(name, workingDir, hostName, undefined, projectObj);
+
+          return new Response(
+            JSON.stringify({ success: result.success, name: `csm-${name}` }),
+            {
+              status: result.success ? 201 : 500,
+              headers: { ...headers, "Content-Type": "application/json" },
+            }
+          );
+        } catch (error) {
+          return new Response(
+            JSON.stringify({ error: "Failed to create session" }),
             { status: 500, headers: { ...headers, "Content-Type": "application/json" } }
           );
         }
@@ -400,9 +499,23 @@ export async function startApiServer(port: number = 3000): Promise<Server<WsSock
               );
             }
 
+            // Replay buffered events so the client gets history
+            const buffered = sessionEventBuffer.get(sessionName);
+            if (buffered && buffered.length > 0) {
+              for (const { event } of buffered) {
+                try {
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+                } catch {
+                  break;
+                }
+              }
+            }
+
             // Subscribe to wsSessionManager events for this session
+            console.log(`[SSE] Client subscribed to session: ${sessionName}`);
             const unsubscribe = wsSessionManager.on((event) => {
               if ("sessionName" in event && event.sessionName === sessionName) {
+                console.log(`[SSE] Forwarding event to client: ${event.type} for ${sessionName}`);
                 try {
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
                 } catch {
@@ -477,6 +590,131 @@ export async function startApiServer(port: number = 3000): Promise<Server<WsSock
           return new Response(
             JSON.stringify({ error: "Invalid request" }),
             { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        }
+      }
+
+      // GET /api/sessions/:name/diff?file=<path> — get git diff for a file
+      const diffMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/diff$/);
+      if (diffMatch && req.method === "GET") {
+        try {
+          const sessionName = decodeURIComponent(diffMatch[1]);
+          const filePath = url.searchParams.get("file");
+
+          const { listSessions } = await import("../lib/tmux");
+          const { exec } = await import("../lib/ssh");
+          const sessions = await listSessions();
+          const session = sessions.find((s) => s.name === sessionName);
+
+          if (!session?.worktreePath) {
+            return new Response(
+              JSON.stringify({ error: "Session not found or no worktree" }),
+              { status: 404, headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          }
+
+          const wt = session.worktreePath;
+          let diff: string;
+
+          if (filePath) {
+            // Diff for a specific file
+            const result = await exec(
+              `cd "${wt}" && git diff HEAD -- "${filePath}" 2>/dev/null || git diff -- "${filePath}" 2>/dev/null`,
+              session.host
+            );
+            diff = result.stdout || '';
+
+            // If no diff (e.g. untracked/new file), show full file content as additions
+            if (!diff.trim()) {
+              const catResult = await exec(
+                `cd "${wt}" && cat "${filePath}" 2>/dev/null`,
+                session.host
+              );
+              if (catResult.stdout) {
+                const lines = catResult.stdout.split('\n');
+                const hunkHeader = `@@ -0,0 +1,${lines.length} @@`;
+                diff = `--- /dev/null\n+++ b/${filePath}\n${hunkHeader}\n${lines.map(l => '+' + l).join('\n')}`;
+              }
+            }
+          } else {
+            // Full diff
+            const result = await exec(
+              `cd "${wt}" && git diff HEAD 2>/dev/null || git diff 2>/dev/null`,
+              session.host
+            );
+            diff = result.stdout || '';
+          }
+
+          return new Response(
+            JSON.stringify({ diff }),
+            { headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        } catch (error) {
+          return new Response(
+            JSON.stringify({ error: "Failed to get diff" }),
+            { status: 500, headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        }
+      }
+
+      // ─── Linear API endpoints ──────────────────────────────────
+
+      // GET /api/linear/search?q=<query> — search Linear issues
+      if (url.pathname === "/api/linear/search" && req.method === "GET") {
+        try {
+          const query = url.searchParams.get("q") || "";
+          if (query.length < 2) {
+            return new Response(
+              JSON.stringify({ issues: [] }),
+              { headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          }
+
+          const { searchIssues } = await import("../lib/linear");
+          const { loadConfig } = await import("../lib/config");
+          const config = await loadConfig();
+          const apiKey = config.linearApiKey;
+          if (!apiKey) {
+            return new Response(
+              JSON.stringify({ issues: [], error: "Linear API key not configured" }),
+              { headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          }
+          const issues = await searchIssues(query, apiKey);
+          return new Response(
+            JSON.stringify({ issues }),
+            { headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        } catch (error) {
+          return new Response(
+            JSON.stringify({ issues: [], error: "Linear search failed" }),
+            { headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        }
+      }
+
+      // GET /api/linear/my-issues — list my assigned Linear issues
+      if (url.pathname === "/api/linear/my-issues" && req.method === "GET") {
+        try {
+          const { listMyIssues } = await import("../lib/linear");
+          const { loadConfig } = await import("../lib/config");
+          const config = await loadConfig();
+          const apiKey = config.linearApiKey;
+          if (!apiKey) {
+            return new Response(
+              JSON.stringify({ issues: [], error: "Linear API key not configured" }),
+              { headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          }
+          const issues = await listMyIssues(apiKey);
+          return new Response(
+            JSON.stringify({ issues }),
+            { headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        } catch (error) {
+          return new Response(
+            JSON.stringify({ issues: [], error: "Failed to fetch issues" }),
+            { headers: { ...headers, "Content-Type": "application/json" } }
           );
         }
       }

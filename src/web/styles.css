@@ -1,0 +1,112 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  width: 100%;
+  height: 100vh;
+}
+
+/* HeroUI Input overrides for dark theme */
+.dark [data-slot="input-wrapper"] {
+  background-color: #152231 !important;
+  border: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+
+.dark [data-slot="input-wrapper"]:hover {
+  border-color: #2a4460;
+}
+
+.dark [data-slot="input-wrapper"][data-focus="true"],
+.dark [data-slot="input-wrapper"]:focus-within {
+  border-color: #3b82f6 !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Remove black focus outline from inputs and textareas */
+.dark [data-slot="inner-wrapper"] input:focus,
+.dark [data-slot="inner-wrapper"] textarea:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Remove focus-visible ring from all HeroUI input wrappers */
+.dark [data-slot="input-wrapper"]:focus-visible,
+.dark [data-slot="input-wrapper"] *:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* HeroUI Select trigger overrides for dark theme */
+.dark [data-slot="trigger"] {
+  background-color: #152231 !important;
+  border: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+
+.dark [data-slot="trigger"]:hover {
+  border-color: #2a4460;
+}
+
+.dark [data-slot="trigger"][data-focus="true"],
+.dark [data-slot="trigger"][data-open="true"],
+.dark [data-slot="trigger"]:focus-within {
+  border-color: #3b82f6 !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* HeroUI Dropdown / Popover / Listbox overrides for dark theme */
+.dark [data-slot="popover"] {
+  background-color: #182636 !important;
+}
+
+.dark [data-slot="listbox"] {
+  background-color: #182636 !important;
+}
+
+.dark [role="listbox"] {
+  background-color: #182636 !important;
+}
+
+/* HeroUI Modal overrides for dark theme */
+.dark [data-slot="modal"] {
+  background-color: #142030 !important;
+}
+
+.dark .heroui-modal-content,
+.dark [role="dialog"] {
+  background-color: #142030 !important;
+}
+
+/* HeroUI Card overrides for dark theme */
+.dark [data-slot="base"].heroui-card,
+.dark .heroui-card {
+  border: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+
+.dark [data-slot="base"].heroui-card:hover,
+.dark .heroui-card:hover {
+  border-color: #2a4460;
+}
+
+/* HeroUI Chip overrides for dark theme — improve contrast on navy */
+.dark .heroui-chip[data-variant="flat"] {
+  background-color: rgba(59, 130, 246, 0.15);
+}
+
+.dark [data-slot="chip"] {
+  border-color: rgba(255, 255, 255, 0.08);
+}
