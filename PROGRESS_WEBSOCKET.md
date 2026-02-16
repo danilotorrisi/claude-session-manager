@@ -271,10 +271,77 @@ export interface Config {
 
 ---
 
-## Phase 3: TUI Integration 🔄 NEXT
+## Phase 3: TUI Integration ✅ COMPLETE
 
-**Status:** Ready to begin
+**Status:** Implemented, tested, and verified
+**Completion Date:** 2026-02-16
 **Dependencies:** Phase 2 complete ✅
+
+### Deliverables
+
+#### 1. `src/tui/hooks/useWsSessions.ts` (new, 120+ lines)
+React hook for WebSocket state management in TUI:
+- **Returns:** `wsStates` (Map of all session states), `pendingApprovals` (array with session/request/tool details), `approveTool()`, `denyTool()`, `sendMessage()`
+- Subscribes to wsSessionManager events via useEffect with cleanup
+- Initializes from existing manager state on mount (handles late mounting)
+- Tracks pending approvals with ref+version pattern to avoid stale closures
+- Auto-cleans approvals when sessions disconnect
+- Stable callbacks (useCallback with no deps) delegating to singleton manager
+
+#### 2. `src/tui/hooks/useStreamLog.ts` (new, 100+ lines)
+Per-session streaming log hook:
+- **Returns:** `entries` (timestamped log array), `streamingText` (accumulated output), `clear()` function
+- **LogEntry types:** assistant, tool_approval, result, status, error
+- Subscribes to wsSessionManager events filtered by sessionName
+- Accumulates streaming text from stream_delta events
+- Clears streaming text on result events
+- Limits entries to configurable max (default 50)
+- Resets state when sessionName changes
+- Proper cleanup on unmount
+
+#### 3. `src/tui/hooks/useSessions.ts` (modified)
+Enhanced with WebSocket state merging:
+- **mapWsStatus()** helper: Maps 8 WS statuses to 3 TUI states (working, idle, waiting_for_input)
+- Merges live WS state into sessions after listSessions() fetch
+- Updates claudeState and claudeLastMessage from WebSocket when connected
+- Skips merge for disconnected sessions
+- **Polling reduced:** 1s → 5s interval (WebSocket provides real-time updates)
+- **Event-driven refresh:** Subscribes to session_connected, session_disconnected, status_changed for immediate updates
+- Cleanup subscription on unmount
+
+#### 4. `src/tui/views/SessionDetail.tsx` (modified)
+Live session monitoring UI:
+- **Tool Approval Banner** (top of view): Shows when pending approval exists, displays tool name + JSON input (max 4 lines), y/n keybindings wired to approveTool/denyTool, yellow bordered box, disappears after approval/denial
+- **Streaming Text Section**: Visible only when streamingText non-empty, shows last 500 chars with spinner, cyan colored
+- **Live Log Section**: Uses useStreamLog hook, displays last 10 entries with total count, color-coded by type (assistant=blue, tool_approval=yellow, result=green, status=gray, error=red), format: [HH:MM:SS] <type> <content truncated to 120 chars>
+- Helper functions: formatTime(), logEntryColor()
+
+#### 5. `src/tui/views/Dashboard.tsx` (modified)
+Approval notification system:
+- **Notification Bar** (above StatusBar): Renders when pendingApprovals.length > 0, shows count ("1 tool approval pending" / "3 tool approvals pending"), lists up to 2 session:toolName pairs with "+N more" overflow, "[Space to view]" hint, yellow warning styling
+- **Space Key Handler**: Navigates to first pending approval session (SELECT_SESSION + SET_VIEW actions)
+- Uses useWsSessions() hook for pendingApprovals state
+
+#### 6. `src/tui/hooks/__tests__/phase3-hooks.test.ts` (new)
+Comprehensive test suite:
+- **36 tests, 98 assertions, 0 failures**
+- **useWsSessions tests (11):** Initial state, event subscription/cleanup, state updates, pending approval tracking, approval resolution, multi-session independence, action functions (approveTool/denyTool/sendMessage)
+- **useStreamLog tests (13):** Empty initial state, 5 event types as log entries, error handling, streaming text accumulation/clearing, session filtering, entry limiting, sessionName changes, clear() function, timestamps
+- **useSessions integration (8):** WS status merging, disconnected session handling, lastAssistantMessage merge, event-driven refresh triggers, error handling
+
+### Verification
+
+- ✅ **TypeScript:** 0 errors (`bun run typecheck`)
+- ✅ **Full test suite:** 308 tests passing, 0 failures, 692 assertions
+- ✅ **Phase 3 tests:** 36/36 passing, 98 assertions
+- ✅ **Phase 1+2 regression:** All previous tests still pass
+- ✅ **E2E verification:** All manual checks passed
+  - Live state in Dashboard (WS merge, event-driven updates)
+  - SessionDetail live log with color coding and timestamps
+  - Tool approval flow (banner, y/n keys, wsSessionManager integration)
+  - Approval notification bar with Space navigation
+  - Multiple sessions with independent logs and approvals
+  - Polling reduction verified (1s → 5s with immediate WS updates)
 
 ### Planned Components
 
@@ -310,10 +377,10 @@ Add notification bar when any session has pending tool approval:
 
 ---
 
-## Phase 4: API Endpoints for External Clients 🔄 PENDING
+## Phase 4: API Endpoints for External Clients 🔄 NEXT
 
-**Status:** Awaiting Phase 3
-**Dependencies:** Phase 3 complete
+**Status:** Ready to begin
+**Dependencies:** Phase 3 complete ✅
 
 ### Planned Routes
 

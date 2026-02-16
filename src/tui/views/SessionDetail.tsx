@@ -14,6 +14,9 @@ import { getDefaultRepo } from "../../lib/config";
 import { cleanupStateFile } from "../../lib/claude-state";
 import { exitTuiAndAttachAutoReturn, exitTuiAndAttachTerminal, exitTuiAndAttachPM, exitTuiAndAttachRemote, exitTuiAndAttachRemoteTerminal, exitTuiAndAttachRemotePM } from "../index";
 import { colors } from "../theme";
+import { useStreamLog } from "../hooks/useStreamLog";
+import { useWsSessions } from "../hooks/useWsSessions";
+import type { LogEntry } from "../hooks/useStreamLog";
 
 interface SessionDetailProps {
   state: AppState;
@@ -27,6 +30,20 @@ interface Metadata {
   createdAt: string;
 }
 
+function formatTime(date: Date): string {
+  return date.toLocaleTimeString("en-US", { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function logEntryColor(type: LogEntry["type"]): string {
+  switch (type) {
+    case "assistant": return "#60A5FA";
+    case "tool_approval": return colors.warning;
+    case "result": return colors.success;
+    case "status": return colors.muted;
+    case "error": return colors.danger;
+  }
+}
+
 export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps) {
   const { exit } = useApp();
   const session = state.selectedSession;
@@ -35,6 +52,14 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
   const [loading, setLoading] = useState(false);
   const [confirmKill, setConfirmKill] = useState(false);
   const [showKillDialog, setShowKillDialog] = useState(false);
+
+  const { entries, streamingText } = useStreamLog(session?.name);
+  const { pendingApprovals, approveTool, denyTool } = useWsSessions();
+
+  // Find pending approval for the current session
+  const sessionApproval = session
+    ? pendingApprovals.find((a) => a.sessionName === session.name)
+    : undefined;
 
   useEffect(() => {
     if (session) {
@@ -68,14 +93,14 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
 
     const { sessionPMExists } = await import("../../lib/session-pm");
     const hasPM = await sessionPMExists(session.name, session.host);
-    
+
     if (!hasPM) {
       dispatch({ type: "SET_ERROR", error: `Session "${session.name}" has no PM window` });
       return;
     }
 
     const tmuxSessionName = getSessionName(session.name);
-    
+
     if (session.host) {
       await exitTuiAndAttachRemotePM(tmuxSessionName, session.host);
     } else {
@@ -131,6 +156,18 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
         setShowKillDialog(false);
       }
       return;
+    }
+
+    // Handle tool approval keybindings
+    if (sessionApproval) {
+      if (input === "y" || input === "Y") {
+        approveTool(sessionApproval.sessionName, sessionApproval.requestId);
+        return;
+      }
+      if (input === "n" || input === "N") {
+        denyTool(sessionApproval.sessionName, sessionApproval.requestId, "Denied from TUI");
+        return;
+      }
     }
 
     if (key.escape) {
@@ -197,8 +234,44 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
     );
   }
 
+  const displayedEntries = entries.slice(-10);
+
   return (
     <Box flexDirection="column" paddingX={1} paddingY={1}>
+      {/* Tool Approval Banner */}
+      {sessionApproval && (
+        <Box
+          marginBottom={1}
+          paddingX={2}
+          paddingY={0}
+          borderStyle="round"
+          borderColor={colors.warning}
+        >
+          <Box flexDirection="column">
+            <Box>
+              <Text color={colors.warning} bold>{"! Tool approval needed: "}</Text>
+              <Text color={colors.textBright} bold>{sessionApproval.toolName}</Text>
+            </Box>
+            <Box>
+              <Text color={colors.muted} wrap="truncate">
+                {JSON.stringify(sessionApproval.toolInput, null, 2).split("\n").slice(0, 4).join("\n")}
+                {JSON.stringify(sessionApproval.toolInput, null, 2).split("\n").length > 4 ? "\n..." : ""}
+              </Text>
+            </Box>
+            <Box>
+              <Box marginRight={2}>
+                <Text backgroundColor={colors.success} color={colors.buttonBg} bold>{" y "}</Text>
+                <Text color={colors.muted}> approve</Text>
+              </Box>
+              <Box>
+                <Text backgroundColor={colors.danger} color={colors.buttonBg} bold>{" n "}</Text>
+                <Text color={colors.muted}> deny</Text>
+              </Box>
+            </Box>
+          </Box>
+        </Box>
+      )}
+
       {/* Session header */}
       <Box marginBottom={1}>
         <Text backgroundColor={colors.accent} color={colors.textBright} bold>
@@ -348,6 +421,47 @@ export function SessionDetail({ state, dispatch, onRefresh }: SessionDetailProps
                 </Text>
               </Box>
               <Text color={colors.accent}>{report.url}</Text>
+            </Box>
+          ))}
+        </Box>
+      )}
+
+      {/* Streaming text section */}
+      {streamingText && (
+        <Box marginTop={1} flexDirection="column">
+          <Box marginBottom={0}>
+            <Text bold backgroundColor={colors.primary} color={colors.textBright}>
+              {" Streaming "}
+            </Text>
+            <Text color={colors.text}> </Text>
+            <Text color={colors.text}>
+              <Spinner type="dots" />
+            </Text>
+          </Box>
+          <Box paddingX={1}>
+            <Text color="#22D3EE" wrap="wrap">
+              {streamingText.length > 500
+                ? "..." + streamingText.slice(-500)
+                : streamingText}
+            </Text>
+          </Box>
+        </Box>
+      )}
+
+      {/* Live Log section */}
+      {displayedEntries.length > 0 && (
+        <Box marginTop={1} flexDirection="column">
+          <Box marginBottom={1}>
+            <Text bold backgroundColor={colors.primary} color={colors.textBright}>
+              {" Live Log "}
+            </Text>
+            <Text color={colors.muted} dimColor> ({entries.length} entries)</Text>
+          </Box>
+          {displayedEntries.map((entry, i) => (
+            <Box key={i}>
+              <Text color={colors.mutedDark}>[{formatTime(entry.timestamp)}]</Text>
+              <Text color={logEntryColor(entry.type)}>{" "}{entry.type.padEnd(14)}</Text>
+              <Text color={colors.text} wrap="truncate"> {entry.content.slice(0, 120)}</Text>
             </Box>
           ))}
         </Box>

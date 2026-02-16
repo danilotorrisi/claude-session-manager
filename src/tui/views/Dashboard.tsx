@@ -6,6 +6,7 @@ import { SessionList } from "../components/SessionList";
 import { StatusBar } from "../components/StatusBar";
 import { GitChangesPanel } from "../components/GitChangesPanel";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { useWsSessions } from "../hooks/useWsSessions";
 import type { Session, GitStats, LinearIssue, Project } from "../../types";
 import type { AppState, AppAction } from "../types";
 import { nextTab } from "../types";
@@ -110,6 +111,9 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
   const [editLinearApiKey, setEditLinearApiKey] = useState<string | null>(null);
   const [editOriginalSession, setEditOriginalSession] = useState<Session | null>(null);
   const editDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // WebSocket pending approvals
+  const { pendingApprovals } = useWsSessions();
 
   // Run script picker state
   const [runScriptMode, setRunScriptMode] = useState(false);
@@ -821,6 +825,14 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
         });
         dispatch({ type: "SET_MESSAGE", message: "Opening feedback report…" });
       }
+    } else if (input === " " && pendingApprovals.length > 0) {
+      // Space navigates to the first session with a pending tool approval
+      const firstApproval = pendingApprovals[0];
+      const targetSession = orderedSessions.find((s) => s.name === firstApproval.sessionName);
+      if (targetSession) {
+        dispatch({ type: "SELECT_SESSION", session: targetSession });
+        dispatch({ type: "SET_VIEW", view: "detail" });
+      }
     } else if (_key.escape) {
       setFeedbackNotification(null);
       setPreviewSession(null);
@@ -877,6 +889,22 @@ export function Dashboard({ state, dispatch, onRefresh }: DashboardProps) {
 
   return (
     <Box flexDirection="column">
+      {pendingApprovals.length > 0 && (
+        <Box marginX={1} paddingX={2} paddingY={0}>
+          <Text backgroundColor={colors.warning} color="#000000" bold>
+            {" ! "}
+          </Text>
+          <Text color={colors.warning} bold>
+            {" "}{pendingApprovals.length} tool approval{pendingApprovals.length !== 1 ? "s" : ""} pending
+          </Text>
+          <Text color={colors.text}>
+            {" — "}
+            {pendingApprovals.slice(0, 2).map((a) => `${a.sessionName}: ${a.toolName}`).join(", ")}
+            {pendingApprovals.length > 2 ? `, +${pendingApprovals.length - 2} more` : ""}
+          </Text>
+          <Text color={colors.muted}> [Space to view]</Text>
+        </Box>
+      )}
       <StatusBar
         error={state.error}
         message={state.message}
