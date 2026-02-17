@@ -45,6 +45,12 @@ export interface ApiToken {
   lastUsed?: string;
 }
 
+export interface ToolApprovalRule {
+  tool: string;         // Tool name to match (e.g., "Bash", "Read", "*" for any)
+  pattern?: string;     // Optional glob pattern matched against primary input
+  action: 'allow' | 'deny' | 'ask';
+}
+
 export interface Config {
   defaultRepo?: string;
   worktreeBase: string;
@@ -57,6 +63,7 @@ export interface Config {
   claudeSettings?: ClaudeSettingsConfig;
   apiPort?: number; // Default: 3000
   apiTokens?: ApiToken[];
+  toolApprovalRules?: ToolApprovalRule[];
 }
 
 export interface GitStats {
@@ -109,6 +116,7 @@ export interface CreateOptions {
   repo?: string;
   host?: string;
   project?: string;
+  effort?: 'low' | 'medium' | 'high';
 }
 
 export interface ListOptions {

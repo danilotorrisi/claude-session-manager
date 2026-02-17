@@ -14,6 +14,8 @@ export const ROUTES = {
   PROJECTS: '/projects',
   HOSTS: '/hosts',
   TASKS: '/tasks',
+  TASK_DETAIL: '/tasks/:id',
+  TOOL_RULES: '/tool-rules',
   SETTINGS: '/settings',
 } as const;
 

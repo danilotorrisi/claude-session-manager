@@ -9,10 +9,10 @@ import {
   Select,
   SelectItem,
   Spinner,
-  Chip,
   Divider,
   Progress,
 } from '@heroui/react';
+import { Chip } from '../components/common/Chip';
 import { useSessions } from '../hooks/api/useSessions';
 import { useLinearSearch } from '../hooks/api/useLinearTasks';
 import { useProjects } from '../hooks/api/useProjects';
@@ -56,6 +56,7 @@ export function CreateSession() {
   const [selectedProject, setSelectedProject] = useState('');
   const [selectedHost, setSelectedHost] = useState('local');
   const [repoPath, setRepoPath] = useState('');
+  const [selectedEffort, setSelectedEffort] = useState('');
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
@@ -120,6 +121,7 @@ export function CreateSession() {
         repo: repoPath || selectedProject || undefined,
         host: selectedHost === 'local' ? undefined : selectedHost,
         project: selectedProject || undefined,
+        effort: selectedEffort || undefined,
       });
       invalidate();
       navigate(ROUTES.HOME);
@@ -128,7 +130,7 @@ export function CreateSession() {
     } finally {
       setIsCreating(false);
     }
-  }, [sessionName, repoPath, selectedProject, selectedHost, invalidate, navigate]);
+  }, [sessionName, repoPath, selectedProject, selectedHost, selectedEffort, invalidate, navigate]);
 
   return (
     <div className="p-6 max-w-2xl mx-auto">
@@ -419,6 +421,21 @@ export function CreateSession() {
                 </span>
               </div>
             </div>
+            <Divider className="my-2" />
+            <Select
+              label="Reasoning Effort"
+              placeholder="Default (medium)"
+              selectedKeys={selectedEffort ? new Set([selectedEffort]) : new Set()}
+              onSelectionChange={(keys) => {
+                const val = Array.from(keys)[0] as string;
+                setSelectedEffort(val || '');
+              }}
+              description="Controls how much reasoning Claude uses per response"
+            >
+              <SelectItem key="low">Low</SelectItem>
+              <SelectItem key="medium">Medium</SelectItem>
+              <SelectItem key="high">High</SelectItem>
+            </Select>
             <Divider className="my-2" />
             <div className="flex justify-between">
               <Button variant="flat" onPress={() => goToStep('host')}>

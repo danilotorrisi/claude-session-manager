@@ -1,4 +1,5 @@
-import { Card, CardBody, Button, Chip } from '@heroui/react';
+import { Card, CardBody, Button } from '@heroui/react';
+import { Chip } from '../common/Chip';
 import { useNavigate } from 'react-router-dom';
 import type { SessionWithWs } from '../../services/sessions';
 

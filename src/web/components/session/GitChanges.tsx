@@ -1,15 +1,12 @@
 import { useState, useCallback } from 'react';
 import {
-  Card,
-  CardBody,
-  CardHeader,
-  Chip,
   Modal,
   ModalContent,
   ModalHeader,
   ModalBody,
   Spinner,
 } from '@heroui/react';
+import { Chip } from '../common/Chip';
 import type { GitStats, GitFileChange } from '../../types';
 import { getFileDiff } from '../../services/diff';
 
@@ -186,18 +183,16 @@ export function GitChanges({ stats, sessionName }: GitChangesProps) {
 
   return (
     <>
-      <Card className="bg-[#0a1520] border border-[#1a2d42]">
-        <CardHeader className="pb-1 pt-2 px-4">
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-semibold">Git Changes</span>
-            <div className="flex items-center gap-2 text-xs">
-              <span className="text-default-500">{stats.filesChanged} files</span>
-              <span className="text-success">+{stats.insertions}</span>
-              <span className="text-danger">-{stats.deletions}</span>
-            </div>
+      <div>
+        <div className="flex items-center gap-3 pb-1 pt-1">
+          <span className="text-sm font-semibold">Git Changes</span>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-default-500">{stats.filesChanged} files</span>
+            <span className="text-success">+{stats.insertions}</span>
+            <span className="text-danger">-{stats.deletions}</span>
           </div>
-        </CardHeader>
-        <CardBody className="pt-1 px-2 pb-2">
+        </div>
+        <div className="pt-1">
           {stats.fileChanges && stats.fileChanges.length > 0 ? (
             <div className="space-y-0">
               {stats.fileChanges.map((file) => (
@@ -205,7 +200,7 @@ export function GitChanges({ stats, sessionName }: GitChangesProps) {
                   key={file.file}
                   type="button"
                   onClick={() => openDiff(file)}
-                  className="w-full flex items-center justify-between py-1.5 px-2 rounded hover:bg-[#0f2030] transition-colors cursor-pointer text-left"
+                  className="w-full flex items-center justify-between py-1.5 px-2 rounded hover:bg-default-100 transition-colors cursor-pointer text-left"
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <Chip
@@ -232,12 +227,12 @@ export function GitChanges({ stats, sessionName }: GitChangesProps) {
               ))}
             </div>
           ) : (
-            <p className="text-sm text-default-500 px-2">
+            <p className="text-sm text-default-500">
               {stats.filesChanged} files changed, {stats.insertions} insertions(+), {stats.deletions} deletions(-)
             </p>
           )}
-        </CardBody>
-      </Card>
+        </div>
+      </div>
 
       <Modal
         isOpen={modal.open}

@@ -49,6 +49,7 @@ COMMANDS:
 OPTIONS:
   --repo <path>    Repository path (for create)
   --host <name>    Remote host name (from config)
+  --effort <level> Claude reasoning effort: low, medium, high (for create)
   --delete-branch  Delete the worktree branch (for kill)
   --no-worker      Don't auto-start co-located worker (for server)
 
@@ -148,6 +149,7 @@ async function main(): Promise<void> {
           repo: options.repo as string | undefined,
           host: options.host as string | undefined,
           project: options.project as string | undefined,
+          effort: options.effort as 'low' | 'medium' | 'high' | undefined,
         });
         break;
 

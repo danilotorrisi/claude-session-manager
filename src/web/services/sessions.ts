@@ -37,3 +37,8 @@ export async function fetchSession(name: string): Promise<SessionWithWs | undefi
 export async function killSession(name: string): Promise<void> {
   await apiClient.post(`/api/sessions/${encodeURIComponent(name)}/kill`);
 }
+
+/** Reconnect a session: restart Claude Code with --sdk-url and --continue. */
+export async function reconnectSession(name: string): Promise<void> {
+  await apiClient.post(`/api/sessions/${encodeURIComponent(name)}/reconnect`);
+}

@@ -8,7 +8,9 @@ import { CreateSession } from './views/CreateSession';
 import { ProjectsView } from './views/ProjectsView';
 import { HostsView } from './views/HostsView';
 import { TasksView } from './views/TasksView';
+import { TaskDetailView } from './views/TaskDetailView';
 import { SettingsView } from './views/SettingsView';
+import { ToolRulesView } from './views/ToolRulesView';
 import { ROUTES } from './utils/constants';
 
 export const router = createBrowserRouter([
@@ -46,6 +48,14 @@ export const router = createBrowserRouter([
           {
             path: ROUTES.TASKS,
             element: <TasksView />,
+          },
+          {
+            path: ROUTES.TASK_DETAIL,
+            element: <TaskDetailView />,
+          },
+          {
+            path: ROUTES.TOOL_RULES,
+            element: <ToolRulesView />,
           },
           {
             path: ROUTES.SETTINGS,

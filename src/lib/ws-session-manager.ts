@@ -20,6 +20,8 @@ import type {
   TextBlock,
 } from "./ws-types";
 import { createInitialSessionState } from "./ws-types";
+import { evaluateToolRules } from "./tool-rules";
+import type { ToolApprovalRule } from "../types";
 
 export interface WsSocketData {
   sessionName: string;
@@ -42,6 +44,11 @@ class WsSessionManager {
   private claudeIdToSession = new Map<string, string>();
   private listeners: WsEventListener[] = [];
   private queuedPrompts = new Map<string, string>();
+
+  // Cached tool approval rules (reloaded periodically)
+  private cachedRules: ToolApprovalRule[] = [];
+  private rulesLastLoaded = 0;
+  private static RULES_CACHE_TTL = 10_000; // 10 seconds
 
   // ─── Connection lifecycle ────────────────────────────────────────
 
@@ -372,6 +379,25 @@ class WsSessionManager {
     }
   }
 
+  private async loadRulesIfNeeded(): Promise<ToolApprovalRule[]> {
+    const now = Date.now();
+    if (now - this.rulesLastLoaded > WsSessionManager.RULES_CACHE_TTL) {
+      try {
+        const { getToolApprovalRules } = await import("./config" /* webpackIgnore: true */);
+        this.cachedRules = await getToolApprovalRules();
+        this.rulesLastLoaded = now;
+      } catch (err) {
+        console.error("[WsSessionManager] Failed to load tool approval rules:", err);
+      }
+    }
+    return this.cachedRules;
+  }
+
+  /** Force-reload rules from config (called after rule changes via API). */
+  invalidateRulesCache(): void {
+    this.rulesLastLoaded = 0;
+  }
+
   private handleControlRequest(
     sessionName: string,
     msg: ControlRequestMessage
@@ -380,29 +406,74 @@ class WsSessionManager {
     if (!state) return;
 
     if (msg.request.subtype === "can_use_tool") {
-      state.pendingToolApproval = {
-        requestId: msg.request_id,
-        toolName: msg.request.tool_name,
-        toolInput: msg.request.input,
-        toolUseId: msg.request.tool_use_id,
-        receivedAt: Date.now(),
-      };
-      state.lastMessageAt = Date.now();
+      const toolName = msg.request.tool_name;
+      const toolInput = msg.request.input;
+      const toolUseId = msg.request.tool_use_id;
+      const requestId = msg.request_id;
 
-      console.log(
-        `[WsSessionManager] Tool approval requested: ${sessionName} — ${msg.request.tool_name}`
-      );
+      // Evaluate rules asynchronously, then either auto-respond or escalate
+      this.loadRulesIfNeeded().then((rules) => {
+        if (rules.length > 0) {
+          const { action: decision, matchedRule } = evaluateToolRules(rules, toolName, toolInput as Record<string, unknown>);
 
-      this.emit({
-        type: "tool_approval_needed",
-        sessionName,
-        approval: {
-          requestId: msg.request_id,
-          toolName: msg.request.tool_name,
-          toolInput: msg.request.input,
-          toolUseId: msg.request.tool_use_id,
+          if (decision === "allow") {
+            this.respondToToolApproval(sessionName, requestId, "allow", undefined, toolInput as Record<string, unknown>);
+            console.log(
+              `[WsSessionManager] Tool auto-approved by rule: ${sessionName} — ${toolName}`
+            );
+            this.emit({
+              type: "tool_auto_approved",
+              sessionName,
+              toolName,
+              toolInput,
+              requestId,
+              matchedRule,
+            } as any);
+            return;
+          }
+
+          if (decision === "deny") {
+            this.respondToToolApproval(sessionName, requestId, "deny", "Denied by CSM rule", toolInput as Record<string, unknown>);
+            console.log(
+              `[WsSessionManager] Tool auto-denied by rule: ${sessionName} — ${toolName}`
+            );
+            this.emit({
+              type: "tool_auto_denied",
+              sessionName,
+              toolName,
+              toolInput,
+              requestId,
+              matchedRule,
+            } as any);
+            return;
+          }
+        }
+
+        // No matching rule or action is "ask" — escalate to user
+        state.pendingToolApproval = {
+          requestId,
+          toolName,
+          toolInput,
+          toolUseId,
           receivedAt: Date.now(),
-        },
+        };
+        state.lastMessageAt = Date.now();
+
+        console.log(
+          `[WsSessionManager] Tool approval requested: ${sessionName} — ${toolName}`
+        );
+
+        this.emit({
+          type: "tool_approval_needed",
+          sessionName,
+          approval: {
+            requestId,
+            toolName,
+            toolInput,
+            toolUseId,
+            receivedAt: Date.now(),
+          },
+        });
       });
     }
   }
@@ -477,7 +548,8 @@ class WsSessionManager {
     sessionName: string,
     requestId: string,
     decision: "allow" | "deny",
-    message?: string
+    message?: string,
+    toolInput?: Record<string, unknown>
   ): boolean {
     const ws = this.connections.get(sessionName);
     const state = this.sessions.get(sessionName);
@@ -489,11 +561,13 @@ class WsSessionManager {
       return false;
     }
 
+    const inputToSend = toolInput ?? state.pendingToolApproval?.toolInput ?? {};
+
     const responseBody: Record<string, unknown> =
       decision === "allow"
         ? {
             behavior: "allow",
-            updatedInput: state.pendingToolApproval?.toolInput ?? {},
+            updatedInput: inputToSend,
           }
         : {
             behavior: "deny",

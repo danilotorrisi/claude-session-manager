@@ -1,12 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
-import { Card, CardBody, CardHeader, Chip, Button, Switch, ButtonGroup } from '@heroui/react';
+import { Button, Switch, ButtonGroup } from '@heroui/react';
+import { Chip } from '../common/Chip';
 import type { StreamLogEntry } from '../../types';
 import { ClaudeView } from './ClaudeView';
 
 interface LogViewerProps {
   entries: StreamLogEntry[];
   streamingText?: string;
+  isWorking?: boolean;
   onClear?: () => void;
+  onClickArea?: () => void;
   className?: string;
 }
 
@@ -83,7 +86,7 @@ function ToolContent({ metadata }: { metadata: Record<string, unknown> }) {
 
 type ViewMode = 'log' | 'claude';
 
-export function LogViewer({ entries, streamingText, onClear, className }: LogViewerProps) {
+export function LogViewer({ entries, streamingText, isWorking, onClear, onClickArea, className }: LogViewerProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const [autoExpand, setAutoExpand] = useState(true);
   const [viewMode, setViewMode] = useState<ViewMode>('claude');
@@ -95,8 +98,8 @@ export function LogViewer({ entries, streamingText, onClear, className }: LogVie
   }, [entries.length, viewMode]);
 
   return (
-    <Card className={`flex flex-col ${className ?? ''}`}>
-      <CardHeader className="pb-1 pt-2 px-4 flex items-center justify-between shrink-0">
+    <div className={`flex flex-col ${className ?? ''}`}>
+      <div className="pb-1 pt-1 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <ButtonGroup size="sm" variant="flat">
             <Button
@@ -137,14 +140,14 @@ export function LogViewer({ entries, streamingText, onClear, className }: LogVie
             </Button>
           )}
         </div>
-      </CardHeader>
-      <CardBody className="pt-1 flex-1 min-h-0 flex flex-col">
+      </div>
+      <div className="flex-1 min-h-0 flex flex-col" onClick={onClickArea}>
         {entries.length === 0 && !streamingText ? (
           <div className="rounded-md bg-default-50 p-4 text-center text-sm text-default-400 flex-1 flex items-center justify-center">
-            No live activity — session may be detached
+            Waiting for activity…
           </div>
         ) : viewMode === 'claude' ? (
-          <ClaudeView entries={entries} streamingText={streamingText} />
+          <ClaudeView entries={entries} streamingText={streamingText} isWorking={isWorking} />
         ) : (
           <div className="flex-1 overflow-y-auto rounded-md bg-default-50 p-2 font-mono text-xs">
             {entries.map((entry, i) => (
@@ -185,7 +188,7 @@ export function LogViewer({ entries, streamingText, onClear, className }: LogVie
             <div ref={bottomRef} />
           </div>
         )}
-      </CardBody>
-    </Card>
+      </div>
+    </div>
   );
 }

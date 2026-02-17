@@ -4,8 +4,8 @@ import {
   Button,
   ButtonGroup,
   Spinner,
-  Chip,
 } from '@heroui/react';
+import { Chip } from '../components/common/Chip';
 import { useNavigate } from 'react-router-dom';
 import { useSessions } from '../hooks/api/useSessions';
 import { useSessionGroups } from '../hooks/ui/useSessionGroups';
@@ -18,6 +18,24 @@ import { EmptyState } from '../components/common/EmptyState';
 import { ROUTES } from '../utils/constants';
 
 type ViewMode = 'table' | 'cards';
+
+const statusColorMap: Record<string, 'danger' | 'warning' | 'success' | 'secondary' | 'default'> = {
+  waiting_for_input: 'danger',
+  working: 'warning',
+  idle: 'default',
+  compacting: 'secondary',
+  error: 'danger',
+  offline: 'default',
+};
+
+const statusLabelMap: Record<string, string> = {
+  waiting_for_input: 'waiting',
+  working: 'working',
+  idle: 'idle',
+  compacting: 'compacting',
+  error: 'error',
+  offline: 'offline',
+};
 
 export function Dashboard() {
   const navigate = useNavigate();
@@ -127,20 +145,25 @@ export function Dashboard() {
 
         {/* Status filter chips */}
         <div className="hidden md:flex gap-1.5 items-center">
-          {Object.entries(statusCounts).map(([status, count]) => (
-            <Chip
-              key={status}
-              size="sm"
-              variant={statusFilter === status ? 'solid' : 'flat'}
-              color={statusFilter === status ? 'primary' : 'default'}
-              className="cursor-pointer"
-              onClick={() =>
-                setStatusFilter(statusFilter === status ? null : status)
-              }
-            >
-              {status} ({count})
-            </Chip>
-          ))}
+          {Object.entries(statusCounts).map(([status, count]) => {
+            const isActive = statusFilter === status;
+            const color = statusColorMap[status] ?? 'default';
+            const label = statusLabelMap[status] ?? status;
+            return (
+              <Chip
+                key={status}
+                size="sm"
+                variant={isActive ? 'solid' : 'dot'}
+                color={color}
+                className="cursor-pointer"
+                onClick={() =>
+                  setStatusFilter(isActive ? null : status)
+                }
+              >
+                {label} ({count})
+              </Chip>
+            );
+          })}
         </div>
 
         {/* View mode toggle */}

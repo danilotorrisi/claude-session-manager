@@ -386,100 +386,10 @@ export async function writeClaudeContext(
   await exec(`echo '${escaped}' > "${workingDir}/CLAUDE.md"`, hostName);
 }
 
-const DEFAULT_ALLOWED_TOOLS = [
-  "Bash(bun *)",
-  "Bash(npm *)",
-  "Bash(npx *)",
-  "Bash(pnpm *)",
-  "Bash(yarn *)",
-  "Bash(node *)",
-  "Bash(git *)",
-  "Bash(gh *)",
-  "Bash(ls *)",
-  "Bash(cat *)",
-  "Bash(head *)",
-  "Bash(tail *)",
-  "Bash(find *)",
-  "Bash(grep *)",
-  "Bash(rg *)",
-  "Bash(ag *)",
-  "Bash(wc *)",
-  "Bash(sort *)",
-  "Bash(uniq *)",
-  "Bash(diff *)",
-  "Bash(echo *)",
-  "Bash(printf *)",
-  "Bash(mkdir *)",
-  "Bash(cp *)",
-  "Bash(mv *)",
-  "Bash(touch *)",
-  "Bash(chmod *)",
-  "Bash(pwd)",
-  "Bash(which *)",
-  "Bash(whoami)",
-  "Bash(env)",
-  "Bash(printenv *)",
-  "Bash(date *)",
-  "Bash(curl *)",
-  "Bash(wget *)",
-  "Bash(jq *)",
-  "Bash(sed *)",
-  "Bash(awk *)",
-  "Bash(cut *)",
-  "Bash(tr *)",
-  "Bash(xargs *)",
-  "Bash(tsc *)",
-  "Bash(eslint *)",
-  "Bash(prettier *)",
-  "Bash(biome *)",
-  "Bash(docker compose *)",
-  "Bash(docker build *)",
-  "Bash(docker ps *)",
-  "Bash(docker logs *)",
-  "Bash(tmux *)",
-  "Bash(ssh *)",
-  "Bash(scp *)",
-  "Bash(rsync *)",
-  "Read",
-  "Write",
-  "Edit",
-];
-
-const DEFAULT_DENY_PATTERNS = [
-  "staging",
-  "stg",
-  "prod",
-  "production",
-  "database",
-  "db",
-  "migrate",
-  "seed",
-  "DROP",
-  "DELETE FROM",
-  "UPDATE .* SET",
-  "INSERT INTO",
-  "psql",
-  "mysql",
-  "mongosh",
-  "prisma db push",
-  "prisma migrate",
-];
-
-function buildDenyHookCommand(patterns: string[]): string {
-  const regex = patterns.join("|");
-  return `bash -c 'INPUT=$(cat); if echo "$INPUT" | grep -qiE "(${regex})"; then echo "BLOCK: This command appears to touch a staging/production environment or database. Please confirm."; exit 2; fi'`;
-}
-
 export async function writeClaudeSettings(
   workingDir: string,
   hostName?: string
 ): Promise<void> {
-  const config = await loadConfig();
-  const csmSettings = config.claudeSettings;
-
-  const allowedTools = csmSettings?.allowedTools ?? DEFAULT_ALLOWED_TOOLS;
-  const denyPatterns = csmSettings?.denyPatterns ?? DEFAULT_DENY_PATTERNS;
-
   // Read existing .claude/settings.json if present
   let existing: Record<string, any> = {};
   const settingsPath = `${workingDir}/.claude/settings.json`;
@@ -492,44 +402,9 @@ export async function writeClaudeSettings(
     }
   }
 
-  // Merge permissions.allow — deduplicate with existing
-  const existingAllow: string[] = existing.permissions?.allow ?? [];
-  const mergedAllow = [...new Set([...existingAllow, ...allowedTools])];
-
-  // Merge hooks — append our deny hook without removing existing ones
-  const existingHooks = existing.hooks?.PreToolUse ?? [];
-  const denyHookCommand = buildDenyHookCommand(denyPatterns);
-  const csmHook = {
-    matcher: "Bash",
-    hooks: [
-      {
-        type: "command",
-        command: denyHookCommand,
-      },
-    ],
-  };
-
-  // Check if we already injected a CSM hook (avoid duplicates on re-create)
-  const hasExistingCsmHook = existingHooks.some(
-    (h: any) =>
-      h.matcher === "Bash" &&
-      h.hooks?.some((inner: any) => inner.command?.includes("BLOCK: This command appears to touch"))
-  );
-
-  const mergedPreToolUse = hasExistingCsmHook
-    ? existingHooks
-    : [...existingHooks, csmHook];
-
   const merged = {
     ...existing,
-    permissions: {
-      ...existing.permissions,
-      allow: mergedAllow,
-    },
-    hooks: {
-      ...existing.hooks,
-      PreToolUse: mergedPreToolUse,
-    },
+    alwaysThinkingEnabled: true,
   };
 
   const json = JSON.stringify(merged, null, 2);
@@ -543,7 +418,8 @@ export async function createSession(
   workingDir: string,
   hostName?: string,
   linearIssue?: LinearIssue,
-  project?: Project
+  project?: Project,
+  effort?: 'low' | 'medium' | 'high'
 ): Promise<CommandResult> {
   const sessionName = getSessionName(name);
 
@@ -589,7 +465,10 @@ export async function createSession(
       const sdkUrl = `ws://localhost:${apiPort}/ws/sessions?name=${encodeURIComponent(name)}`;
       // Unset CLAUDECODE env var to prevent "nested session" detection when launched from within Claude Code
       await exec(`tmux send-keys -t ${sessionName}:claude 'unset CLAUDECODE' Enter`, hostName);
-      const claudeCmd = `claude --sdk-url '${sdkUrl}' --print --output-format stream-json --input-format stream-json --verbose --permission-mode acceptEdits`;
+      let claudeCmd = `claude --sdk-url '${sdkUrl}' --print --output-format stream-json --input-format stream-json --verbose --permission-mode acceptEdits`;
+      if (effort) {
+        claudeCmd += ` --effort ${effort}`;
+      }
       await exec(`tmux send-keys -t ${sessionName}:claude '${claudeCmd.replace(/'/g, "'\\''")}' Enter`, hostName);
 
       // Queue initial prompt so Claude starts with a message once connected
@@ -687,6 +566,48 @@ export async function sendToSession(name: string, text: string, hostName?: strin
   // Escape single quotes for shell safety
   const escaped = text.replace(/'/g, "'\\''");
   return exec(`tmux send-keys -t ${sessionName} -l '${escaped}' && tmux send-keys -t ${sessionName} Enter`, hostName);
+}
+
+/**
+ * Reconnect a session by restarting Claude Code with --sdk-url and --continue.
+ * Sends Ctrl-C and /exit to gracefully stop any running Claude process,
+ * then relaunches with WebSocket integration and conversation resumption.
+ */
+export async function reconnectSession(name: string): Promise<CommandResult> {
+  const sessionName = getSessionName(name);
+  const config = await loadConfig();
+  const apiPort = config.apiPort ?? 3000;
+  const sdkUrl = `ws://localhost:${apiPort}/ws/sessions?name=${encodeURIComponent(name)}`;
+
+  // Gracefully stop existing Claude process: Ctrl-C, wait, /exit, wait
+  await exec(`tmux send-keys -t ${sessionName}:claude C-c`, undefined);
+  await new Promise((r) => setTimeout(r, 500));
+  await exec(`tmux send-keys -t ${sessionName}:claude '/exit' Enter`, undefined);
+  await new Promise((r) => setTimeout(r, 1000));
+
+  // Send another Ctrl-C in case /exit didn't work (e.g. process was stuck)
+  await exec(`tmux send-keys -t ${sessionName}:claude C-c`, undefined);
+  await new Promise((r) => setTimeout(r, 500));
+
+  // Unset CLAUDECODE env var to prevent nested session detection
+  await exec(`tmux send-keys -t ${sessionName}:claude 'unset CLAUDECODE' Enter`, undefined);
+  await new Promise((r) => setTimeout(r, 200));
+
+  // Load session metadata to restore effort level
+  const metadata = await loadSessionMetadata(name);
+  const effort = metadata?.effort;
+
+  // Relaunch Claude with --sdk-url and --continue to resume last conversation
+  let claudeCmd = `claude --continue --sdk-url '${sdkUrl}' --print --output-format stream-json --input-format stream-json --verbose --permission-mode acceptEdits`;
+  if (effort) {
+    claudeCmd += ` --effort ${effort}`;
+  }
+  const result = await exec(
+    `tmux send-keys -t ${sessionName}:claude '${claudeCmd.replace(/'/g, "'\\''")}' Enter`,
+    undefined
+  );
+
+  return result;
 }
 
 export async function attachSession(name: string): Promise<void> {

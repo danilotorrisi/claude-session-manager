@@ -63,6 +63,15 @@ const navItems: NavItem[] = [
       </svg>
     ),
   },
+  {
+    label: 'Tool Rules',
+    path: ROUTES.TOOL_RULES,
+    icon: (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      </svg>
+    ),
+  },
 ];
 
 const bottomItems: NavItem[] = [
@@ -124,7 +133,7 @@ export function Sidebar() {
       className={`
         flex flex-col border-r border-divider bg-content1 transition-all duration-200
         ${sidebarOpen ? 'w-56' : 'w-16'}
-        fixed top-16 md:relative md:top-0 z-40 h-[calc(100vh-64px)]
+        fixed top-16 z-40 h-[calc(100vh-64px)] md:relative md:top-0 md:z-auto md:h-auto
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}
     >

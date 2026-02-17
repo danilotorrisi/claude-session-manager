@@ -1,5 +1,8 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import { Button, Textarea } from '@heroui/react';
+import { useState, useCallback, useRef, useEffect, useImperativeHandle, forwardRef } from 'react';
+
+export interface MessageInputHandle {
+  focus: () => void;
+}
 
 interface MessageInputProps {
   onSend: (text: string) => void;
@@ -8,14 +11,18 @@ interface MessageInputProps {
   placeholder?: string;
 }
 
-export function MessageInput({
+export const MessageInput = forwardRef<MessageInputHandle, MessageInputProps>(function MessageInput({
   onSend,
   isSending = false,
   disabled = false,
-  placeholder = 'Type a message... (Cmd+Enter to send)',
-}: MessageInputProps) {
+  placeholder = 'Type a message...',
+}, ref) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useImperativeHandle(ref, () => ({
+    focus: () => textareaRef.current?.focus(),
+  }));
 
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
@@ -26,7 +33,7 @@ export function MessageInput({
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         handleSend();
       }
@@ -38,33 +45,34 @@ export function MessageInput({
     textareaRef.current?.focus();
   }, []);
 
+  // Auto-resize textarea to content
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  }, [text]);
+
+  const isDisabled = disabled || isSending;
+
   return (
-    <div className="flex gap-2 items-end">
-      <Textarea
+    <div className={`relative flex items-start border border-default-200 rounded-lg bg-default-50 transition-colors focus-within:border-primary ${isDisabled ? 'opacity-50' : ''}`}>
+      <span className="pl-3 pt-[9px] text-primary select-none shrink-0 leading-none">{'>'}</span>
+      <textarea
         ref={textareaRef}
         value={text}
-        onValueChange={setText}
+        onChange={(e) => setText(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
-        minRows={1}
-        maxRows={4}
-        isDisabled={disabled || isSending}
-        classNames={{
-          inputWrapper: 'bg-default-50 !border-transparent hover:!border-default-300 focus-within:!border-primary !outline-none !ring-0 !shadow-none',
-          innerWrapper: '!outline-none !ring-0',
-          input: '!outline-none !ring-0',
-        }}
-        className="flex-1"
+        disabled={isDisabled}
+        rows={1}
+        className="flex-1 bg-transparent text-sm text-foreground placeholder:text-default-400 px-2 py-2 resize-none outline-none min-h-[36px] max-h-[120px] leading-[20px]"
       />
-      <Button
-        color="primary"
-        onPress={handleSend}
-        isLoading={isSending}
-        isDisabled={disabled || !text.trim()}
-        className="shrink-0"
-      >
-        Send
-      </Button>
+      {isSending && (
+        <span className="pr-3 pb-2.5 text-xs text-default-400 shrink-0 animate-pulse">
+          sending...
+        </span>
+      )}
     </div>
   );
-}
+});

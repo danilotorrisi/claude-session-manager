@@ -1,6 +1,6 @@
 import { homedir } from "os";
 import { basename, join } from "path";
-import type { Config, HostConfig, Project, R2Config } from "../types";
+import type { Config, HostConfig, Project, R2Config, ToolApprovalRule } from "../types";
 
 export function expandTilde(filepath: string): string {
   if (filepath === "~") return homedir();
@@ -134,6 +134,16 @@ export async function getWorktreeBase(): Promise<string> {
 export async function getLinearApiKey(): Promise<string | undefined> {
   const config = await loadConfig();
   return config.linearApiKey;
+}
+
+export async function setLinearApiKey(apiKey: string | undefined): Promise<void> {
+  const config = await loadConfig();
+  if (apiKey && apiKey.trim()) {
+    config.linearApiKey = apiKey.trim();
+  } else {
+    delete config.linearApiKey;
+  }
+  await saveConfig(config);
 }
 
 export async function getProjects(): Promise<Project[]> {
@@ -274,6 +284,17 @@ export async function getR2Config(): Promise<R2Config | undefined> {
 export async function saveR2Config(r2Config: R2Config): Promise<void> {
   const config = await loadConfig();
   config.r2 = r2Config;
+  await saveConfig(config);
+}
+
+export async function getToolApprovalRules(): Promise<ToolApprovalRule[]> {
+  const config = await loadConfig();
+  return config.toolApprovalRules || [];
+}
+
+export async function setToolApprovalRules(rules: ToolApprovalRule[]): Promise<void> {
+  const config = await loadConfig();
+  config.toolApprovalRules = rules;
   await saveConfig(config);
 }
 

@@ -1,6 +1,7 @@
 import type { Server } from "bun";
 import type { WorkerEvent, WorkerHostInfo } from "../worker/types";
 import { wsSessionManager, type WsSocketData } from "../lib/ws-session-manager";
+import { persistEvent, loadEvents } from "../lib/event-store";
 
 // In-memory storage for demo (in production, use a DB)
 interface WorkerInfo {
@@ -207,10 +208,11 @@ function handleGetState(): Response {
 }
 
 export async function startApiServer(port: number = 3000): Promise<Server<WsSocketData>> {
-  // Buffer all session events for SSE replay
+  // Buffer all session events for SSE replay + persist to disk
   wsSessionManager.on((event) => {
     if ("sessionName" in event && typeof event.sessionName === "string") {
       bufferSessionEvent(event.sessionName, event as Record<string, unknown>);
+      persistEvent(event.sessionName, event as Record<string, unknown>);
     }
   });
 
@@ -223,7 +225,7 @@ export async function startApiServer(port: number = 3000): Promise<Server<WsSock
       // CORS headers for development
       const headers = {
         "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+        "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type, Authorization",
       };
 
@@ -321,6 +323,8 @@ export async function startApiServer(port: number = 3000): Promise<Server<WsSock
             hosts: config.hosts ?? {},
             projectsBase: config.projectsBase,
             hasLinear: !!config.linearApiKey,
+            linearApiKey: config.linearApiKey, // Include for settings view
+            toolApprovalRules: config.toolApprovalRules ?? [],
           };
           return new Response(
             JSON.stringify({ config: safeConfig }),
@@ -329,6 +333,117 @@ export async function startApiServer(port: number = 3000): Promise<Server<WsSock
         } catch (error) {
           return new Response(
             JSON.stringify({ error: "Failed to load config" }),
+            { status: 500, headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        }
+      }
+
+      // PATCH /api/config — update CSM config (Linear API key)
+      if (url.pathname === "/api/config" && req.method === "PATCH") {
+        try {
+          // Auth check for config updates
+          const authToken = req.headers.get("Authorization")?.replace("Bearer ", "");
+          if (!authToken) {
+            return new Response(
+              JSON.stringify({ error: "Unauthorized - missing token" }),
+              { status: 401, headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          }
+
+          const { validateApiToken } = await import("../lib/config");
+          const valid = await validateApiToken(authToken);
+          if (!valid) {
+            return new Response(
+              JSON.stringify({ error: "Unauthorized - invalid token" }),
+              { status: 401, headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          }
+
+          const body = await req.json();
+
+          // Update Linear API key if provided
+          if ("linearApiKey" in body) {
+            const { setLinearApiKey } = await import("../lib/config");
+            await setLinearApiKey(body.linearApiKey);
+          }
+
+          // Update tool approval rules if provided
+          if ("toolApprovalRules" in body) {
+            const { setToolApprovalRules } = await import("../lib/config");
+            await setToolApprovalRules(body.toolApprovalRules);
+            wsSessionManager.invalidateRulesCache();
+          }
+
+          return new Response(
+            JSON.stringify({ success: true }),
+            { headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        } catch (error) {
+          return new Response(
+            JSON.stringify({ error: "Failed to update config" }),
+            { status: 500, headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        }
+      }
+
+      // POST /api/config/rules — append a single tool approval rule
+      if (url.pathname === "/api/config/rules" && req.method === "POST") {
+        try {
+          const authToken = req.headers.get("Authorization")?.replace("Bearer ", "");
+          if (!authToken) {
+            return new Response(
+              JSON.stringify({ error: "Unauthorized - missing token" }),
+              { status: 401, headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          }
+
+          const { validateApiToken, getToolApprovalRules, setToolApprovalRules } = await import("../lib/config");
+          const valid = await validateApiToken(authToken);
+          if (!valid) {
+            return new Response(
+              JSON.stringify({ error: "Unauthorized - invalid token" }),
+              { status: 401, headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          }
+
+          const body = await req.json();
+          if (!body.rule || !body.rule.tool || !body.rule.action) {
+            return new Response(
+              JSON.stringify({ error: "Missing rule with tool and action" }),
+              { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          }
+
+          const rules = await getToolApprovalRules();
+          rules.push(body.rule);
+          await setToolApprovalRules(rules);
+          wsSessionManager.invalidateRulesCache();
+
+          return new Response(
+            JSON.stringify({ success: true, rules }),
+            { headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        } catch (error) {
+          return new Response(
+            JSON.stringify({ error: "Failed to add rule" }),
+            { status: 500, headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        }
+      }
+
+      // GET /api/claude-usage — fetch Claude usage limits (session/weekly/sonnet)
+      if (url.pathname === "/api/claude-usage" && req.method === "GET") {
+        try {
+          const { fetchClaudeUsage } = await import("../lib/claude-usage");
+          const usage = await fetchClaudeUsage();
+          return new Response(
+            JSON.stringify(usage),
+            { headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Failed to fetch usage";
+          return new Response(
+            JSON.stringify({ error: message }),
             { status: 500, headers: { ...headers, "Content-Type": "application/json" } }
           );
         }
@@ -391,7 +506,7 @@ export async function startApiServer(port: number = 3000): Promise<Server<WsSock
       if (url.pathname === "/api/sessions" && req.method === "POST") {
         try {
           const body = await req.json();
-          const { name, repo, host, project } = body;
+          const { name, repo, host, project, effort } = body;
 
           if (!name || typeof name !== "string") {
             return new Response(
@@ -401,7 +516,7 @@ export async function startApiServer(port: number = 3000): Promise<Server<WsSock
           }
 
           const { createSession } = await import("../lib/tmux");
-          const { createWorktree } = await import("../lib/worktree");
+          const { createWorktree, getWorktreePath } = await import("../lib/worktree");
           const { loadConfig } = await import("../lib/config");
 
           const config = await loadConfig();
@@ -409,17 +524,28 @@ export async function startApiServer(port: number = 3000): Promise<Server<WsSock
           const repoPath = repo || projectObj?.repoPath || undefined;
           const hostName = host === "local" ? undefined : host;
 
+          // Validate effort if provided
+          const validEfforts = ['low', 'medium', 'high'];
+          if (effort && !validEfforts.includes(effort)) {
+            return new Response(
+              JSON.stringify({ error: "Invalid effort level. Must be 'low', 'medium', or 'high'" }),
+              { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          }
+
           let workingDir = repoPath || process.cwd();
           if (repoPath) {
             try {
-              const wt = await createWorktree(repoPath, name);
-              workingDir = wt.path;
+              const wtResult = await createWorktree(name, repoPath, hostName, undefined, project, effort);
+              if (wtResult.success) {
+                workingDir = await getWorktreePath(name, project);
+              }
             } catch (e) {
               console.warn(`[Master] Worktree creation failed: ${e}`);
             }
           }
 
-          const result = await createSession(name, workingDir, hostName, undefined, projectObj);
+          const result = await createSession(name, workingDir, hostName, undefined, projectObj, effort);
 
           return new Response(
             JSON.stringify({ success: result.success, name: `csm-${name}` }),
@@ -449,6 +575,11 @@ export async function startApiServer(port: number = 3000): Promise<Server<WsSock
               { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
             );
           }
+
+          // Persist user message for SSE replay
+          const userEvent = { type: "user_message", sessionName, text: body.text };
+          bufferSessionEvent(sessionName, userEvent);
+          persistEvent(sessionName, userEvent);
 
           // Try WebSocket first, fall back to tmux
           if (wsSessionManager.isConnected(sessionName)) {
@@ -483,7 +614,7 @@ export async function startApiServer(port: number = 3000): Promise<Server<WsSock
         const encoder = new TextEncoder();
 
         const stream = new ReadableStream({
-          start(controller) {
+          async start(controller) {
             // Send initial connection event
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify({ type: "connected", sessionName })}\n\n`)
@@ -499,15 +630,17 @@ export async function startApiServer(port: number = 3000): Promise<Server<WsSock
               );
             }
 
-            // Replay buffered events so the client gets history
-            const buffered = sessionEventBuffer.get(sessionName);
-            if (buffered && buffered.length > 0) {
-              for (const { event } of buffered) {
-                try {
-                  controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
-                } catch {
-                  break;
-                }
+            // Replay persisted events from disk (falls back to in-memory buffer)
+            const persisted = await loadEvents(sessionName);
+            const replayEvents = persisted.length > 0
+              ? persisted.map((e) => e.event)
+              : (sessionEventBuffer.get(sessionName) ?? []).map((e) => e.event);
+
+            for (const event of replayEvents) {
+              try {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+              } catch {
+                break;
               }
             }
 
@@ -657,6 +790,58 @@ export async function startApiServer(port: number = 3000): Promise<Server<WsSock
         }
       }
 
+      // POST /api/sessions/:name/reconnect — restart Claude Code with --sdk-url and --continue
+      const reconnectMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/reconnect$/);
+      if (reconnectMatch && req.method === "POST") {
+        try {
+          const sessionName = decodeURIComponent(reconnectMatch[1]);
+          const { reconnectSession } = await import("../lib/tmux");
+          const result = await reconnectSession(sessionName);
+          return new Response(
+            JSON.stringify({ success: result.success }),
+            { headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        } catch (error) {
+          return new Response(
+            JSON.stringify({ error: "Failed to reconnect session" }),
+            { status: 500, headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        }
+      }
+
+      // POST /api/sessions/:name/kill — kill a session and clean up
+      const killMatch = url.pathname.match(/^\/api\/sessions\/([^/]+)\/kill$/);
+      if (killMatch && req.method === "POST") {
+        try {
+          const sessionName = decodeURIComponent(killMatch[1]);
+          const { killSession } = await import("../lib/tmux");
+          const { removeWorktree, loadSessionMetadata, worktreeExists } = await import("../lib/worktree");
+          const { cleanupStateFile } = await import("../lib/claude-state");
+
+          // Kill the tmux session
+          const result = await killSession(sessionName);
+
+          // Clean up worktree if it exists
+          const metadata = await loadSessionMetadata(sessionName);
+          if (metadata?.repoPath && await worktreeExists(sessionName)) {
+            await removeWorktree(sessionName, metadata.repoPath);
+          }
+
+          // Clean up Claude state file
+          cleanupStateFile(sessionName);
+
+          return new Response(
+            JSON.stringify({ success: result.success }),
+            { headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        } catch (error) {
+          return new Response(
+            JSON.stringify({ error: "Failed to kill session" }),
+            { status: 500, headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        }
+      }
+
       // ─── Linear API endpoints ──────────────────────────────────
 
       // GET /api/linear/search?q=<query> — search Linear issues
@@ -715,6 +900,71 @@ export async function startApiServer(port: number = 3000): Promise<Server<WsSock
           return new Response(
             JSON.stringify({ issues: [], error: "Failed to fetch issues" }),
             { headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        }
+      }
+
+      // GET /api/linear/issues/:issueId/comments — fetch comments for an issue
+      const commentsMatch = url.pathname.match(/^\/api\/linear\/issues\/([^/]+)\/comments$/);
+      if (commentsMatch && req.method === "GET") {
+        try {
+          const issueId = decodeURIComponent(commentsMatch[1]);
+          const { fetchIssueComments } = await import("../lib/linear");
+          const { loadConfig } = await import("../lib/config");
+          const config = await loadConfig();
+          const apiKey = config.linearApiKey;
+          if (!apiKey) {
+            return new Response(
+              JSON.stringify({ comments: [], error: "Linear API key not configured" }),
+              { headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          }
+          const comments = await fetchIssueComments(apiKey, issueId);
+          return new Response(
+            JSON.stringify({ comments }),
+            { headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        } catch (error) {
+          return new Response(
+            JSON.stringify({ comments: [], error: "Failed to fetch comments" }),
+            { headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        }
+      }
+
+      // POST /api/linear/issues/:issueId/comments — create a comment on an issue
+      const createCommentMatch = url.pathname.match(/^\/api\/linear\/issues\/([^/]+)\/comments$/);
+      if (createCommentMatch && req.method === "POST") {
+        try {
+          const issueId = decodeURIComponent(createCommentMatch[1]);
+          const body = await req.json();
+
+          if (!body.body || typeof body.body !== "string") {
+            return new Response(
+              JSON.stringify({ error: "Missing or invalid 'body' field" }),
+              { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          }
+
+          const { createIssueComment } = await import("../lib/linear");
+          const { loadConfig } = await import("../lib/config");
+          const config = await loadConfig();
+          const apiKey = config.linearApiKey;
+          if (!apiKey) {
+            return new Response(
+              JSON.stringify({ error: "Linear API key not configured" }),
+              { status: 400, headers: { ...headers, "Content-Type": "application/json" } }
+            );
+          }
+          const comment = await createIssueComment(apiKey, issueId, body.body);
+          return new Response(
+            JSON.stringify({ comment }),
+            { headers: { ...headers, "Content-Type": "application/json" } }
+          );
+        } catch (error) {
+          return new Response(
+            JSON.stringify({ error: "Failed to create comment" }),
+            { status: 500, headers: { ...headers, "Content-Type": "application/json" } }
           );
         }
       }

@@ -2,7 +2,6 @@ import {
   Button,
   Card,
   CardBody,
-  Chip,
   Table,
   TableHeader,
   TableColumn,
@@ -10,6 +9,7 @@ import {
   TableRow,
   TableCell,
 } from '@heroui/react';
+import { Chip } from '../components/common/Chip';
 import { useHosts } from '../hooks/api/useProjects';
 import { EmptyState } from '../components/common/EmptyState';
 import { TableSkeleton } from '../components/common/Skeleton';

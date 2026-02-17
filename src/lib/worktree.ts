@@ -10,6 +10,7 @@ interface SessionMetadata {
   linearIssue?: LinearIssue;
   projectName?: string;
   feedbackReports?: FeedbackReport[];
+  effort?: 'low' | 'medium' | 'high';
 }
 
 export function generateBranchName(sessionName: string, projectName?: string): string {
@@ -37,7 +38,8 @@ export async function saveSessionMetadata(
   branchName: string,
   hostName?: string,
   linearIssue?: LinearIssue,
-  projectName?: string
+  projectName?: string,
+  effort?: 'low' | 'medium' | 'high'
 ): Promise<void> {
   const metadataPath = await getMetadataPath(sessionName, projectName);
   const metadata: SessionMetadata = {
@@ -46,6 +48,7 @@ export async function saveSessionMetadata(
     createdAt: new Date().toISOString(),
     ...(linearIssue && { linearIssue }),
     ...(projectName && { projectName }),
+    ...(effort && { effort }),
   };
   await exec(`echo '${JSON.stringify(metadata)}' > "${metadataPath}"`, hostName);
 }
@@ -108,7 +111,8 @@ export async function createWorktree(
   repoPath: string,
   hostName?: string,
   linearIssue?: LinearIssue,
-  projectName?: string
+  projectName?: string,
+  effort?: 'low' | 'medium' | 'high'
 ): Promise<CommandResult> {
   const branchName = generateBranchName(sessionName, projectName);
   const worktreePath = await getWorktreePath(sessionName, projectName);
@@ -123,7 +127,7 @@ export async function createWorktree(
 
   // Save metadata for later cleanup
   if (result.success) {
-    await saveSessionMetadata(sessionName, repoPath, branchName, hostName, linearIssue, projectName);
+    await saveSessionMetadata(sessionName, repoPath, branchName, hostName, linearIssue, projectName, effort);
   }
 
   return result;

@@ -4,7 +4,6 @@ import {
   Card,
   CardBody,
   CardHeader,
-  Chip,
   Divider,
   Input,
   RadioGroup,
@@ -12,6 +11,7 @@ import {
   Snippet,
   Spinner,
 } from '@heroui/react';
+import { Chip } from '../components/common/Chip';
 import { useTheme } from '../hooks/ui/useTheme';
 import { useAuthStore } from '../store/authStore';
 import { apiClient } from '../services/client';
@@ -20,14 +20,29 @@ export function SettingsView() {
   const { theme, setTheme, isDark } = useTheme();
   const { token, login, logout } = useAuthStore();
   const [linearKey, setLinearKey] = useState('');
+  const [originalLinearKey, setOriginalLinearKey] = useState('');
   const [showToken, setShowToken] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  const [savingLinear, setSavingLinear] = useState(false);
+  const [linearSaveStatus, setLinearSaveStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [apiStatus, setApiStatus] = useState<'checking' | 'connected' | 'error'>('checking');
   const [apiError, setApiError] = useState<string | null>(null);
 
   const tokenPreview = token
     ? `${token.slice(0, 8)}..${token.slice(-4)}`
     : 'Not set';
+
+  // Load config on mount
+  const loadConfigData = useCallback(async () => {
+    try {
+      const response = await apiClient.get<{ config: { linearApiKey?: string } }>('/api/config');
+      const key = response.data?.config?.linearApiKey || '';
+      setLinearKey(key);
+      setOriginalLinearKey(key);
+    } catch (err) {
+      console.error('Failed to load config:', err);
+    }
+  }, []);
 
   // Check API connection
   const checkApiConnection = useCallback(async () => {
@@ -45,7 +60,8 @@ export function SettingsView() {
   // Check on mount
   useEffect(() => {
     checkApiConnection();
-  }, [checkApiConnection]);
+    loadConfigData();
+  }, [checkApiConnection, loadConfigData]);
 
   const handleRegenerate = async () => {
     setRegenerating(true);
@@ -60,6 +76,26 @@ export function SettingsView() {
       setRegenerating(false);
     }
   };
+
+  const handleSaveLinearKey = async () => {
+    setSavingLinear(true);
+    setLinearSaveStatus('idle');
+    try {
+      await apiClient.patch('/api/config', {
+        linearApiKey: linearKey || undefined,
+      });
+      setOriginalLinearKey(linearKey);
+      setLinearSaveStatus('success');
+      setTimeout(() => setLinearSaveStatus('idle'), 3000);
+    } catch (err) {
+      setLinearSaveStatus('error');
+      console.error('Failed to save Linear API key:', err);
+    } finally {
+      setSavingLinear(false);
+    }
+  };
+
+  const hasLinearKeyChanged = linearKey !== originalLinearKey;
 
   return (
     <div className="p-6 max-w-2xl mx-auto">
@@ -230,8 +266,29 @@ export function SettingsView() {
               placeholder="lin_api_..."
               value={linearKey}
               onValueChange={setLinearKey}
-              description="Your Linear API key for issue search and task management. Configured via CSM config file."
+              description="Your Linear API key for issue search and task management"
             />
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                color="primary"
+                onPress={handleSaveLinearKey}
+                isLoading={savingLinear}
+                isDisabled={!hasLinearKeyChanged || savingLinear}
+              >
+                Save Linear Key
+              </Button>
+              {linearSaveStatus === 'success' && (
+                <Chip size="sm" color="success" variant="flat">
+                  Saved successfully
+                </Chip>
+              )}
+              {linearSaveStatus === 'error' && (
+                <Chip size="sm" color="danger" variant="flat">
+                  Failed to save
+                </Chip>
+              )}
+            </div>
             <p className="text-xs text-default-500">
               The Linear API key is stored in your CSM config at{' '}
               <code className="text-primary bg-primary-50 dark:bg-primary-900/20 px-1 rounded">

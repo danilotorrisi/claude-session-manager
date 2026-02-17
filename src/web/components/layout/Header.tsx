@@ -49,6 +49,7 @@ export function Header() {
       isBordered
       position="static"
       classNames={{
+        base: 'z-50',
         wrapper: 'px-4',
       }}
     >

@@ -17,8 +17,8 @@ import {
   ModalBody,
   ModalFooter,
   useDisclosure,
-  Chip,
 } from '@heroui/react';
+import { Chip } from '../components/common/Chip';
 import { useProjects } from '../hooks/api/useProjects';
 import { EmptyState } from '../components/common/EmptyState';
 import { TableSkeleton } from '../components/common/Skeleton';

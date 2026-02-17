@@ -537,3 +537,156 @@ export async function listMyIssues(
     priority: node.priority ?? undefined,
   }));
 }
+
+export interface LinearComment {
+  id: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  user?: {
+    id: string;
+    name: string;
+    displayName: string;
+    avatarUrl?: string;
+  };
+}
+
+/**
+ * Fetch comments for a Linear issue by issue ID.
+ */
+export async function fetchIssueComments(
+  apiKey: string,
+  issueId: string
+): Promise<LinearComment[]> {
+  const graphqlQuery = {
+    query: `
+      query IssueComments($issueId: String!) {
+        issue(id: $issueId) {
+          comments(first: 50, orderBy: createdAt) {
+            nodes {
+              id
+              body
+              createdAt
+              updatedAt
+              user {
+                id
+                name
+                displayName
+                avatarUrl
+              }
+            }
+          }
+        }
+      }
+    `,
+    variables: { issueId },
+  };
+
+  const response = await fetch(LINEAR_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: apiKey,
+    },
+    body: JSON.stringify(graphqlQuery),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Linear API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+
+  if (data?.errors?.length) {
+    throw new Error(data.errors[0].message || "GraphQL error");
+  }
+
+  const nodes = data?.data?.issue?.comments?.nodes;
+
+  if (!Array.isArray(nodes)) {
+    return [];
+  }
+
+  return nodes.map((node: any) => ({
+    id: node.id,
+    body: node.body,
+    createdAt: node.createdAt,
+    updatedAt: node.updatedAt,
+    user: node.user ? {
+      id: node.user.id,
+      name: node.user.name,
+      displayName: node.user.displayName,
+      avatarUrl: node.user.avatarUrl,
+    } : undefined,
+  }));
+}
+
+/**
+ * Create a comment on a Linear issue.
+ */
+export async function createIssueComment(
+  apiKey: string,
+  issueId: string,
+  body: string
+): Promise<LinearComment> {
+  const graphqlQuery = {
+    query: `
+      mutation CreateComment($issueId: String!, $body: String!) {
+        commentCreate(input: { issueId: $issueId, body: $body }) {
+          success
+          comment {
+            id
+            body
+            createdAt
+            updatedAt
+            user {
+              id
+              name
+              displayName
+              avatarUrl
+            }
+          }
+        }
+      }
+    `,
+    variables: { issueId, body },
+  };
+
+  const response = await fetch(LINEAR_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: apiKey,
+    },
+    body: JSON.stringify(graphqlQuery),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Linear API error: ${response.status}`);
+  }
+
+  const data = await response.json();
+
+  if (data?.errors?.length) {
+    throw new Error(data.errors[0].message || "GraphQL error");
+  }
+
+  const result = data?.data?.commentCreate;
+  if (!result?.success || !result?.comment) {
+    throw new Error("Failed to create comment");
+  }
+
+  const comment = result.comment;
+  return {
+    id: comment.id,
+    body: comment.body,
+    createdAt: comment.createdAt,
+    updatedAt: comment.updatedAt,
+    user: comment.user ? {
+      id: comment.user.id,
+      name: comment.user.name,
+      displayName: comment.user.displayName,
+      avatarUrl: comment.user.avatarUrl,
+    } : undefined,
+  };
+}

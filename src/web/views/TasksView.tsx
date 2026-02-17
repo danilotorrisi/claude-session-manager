@@ -1,15 +1,16 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Button,
   Card,
   CardBody,
-  Chip,
   Input,
   Spinner,
   Tabs,
   Tab,
   Link,
 } from '@heroui/react';
+import { Chip } from '../components/common/Chip';
 import { useLinearSearch, useMyLinearIssues } from '../hooks/api/useLinearTasks';
 import { useProjects } from '../hooks/api/useProjects';
 import { EmptyState } from '../components/common/EmptyState';
@@ -24,16 +25,30 @@ const PRIORITY_LABELS: Record<number, { label: string; color: 'danger' | 'warnin
 };
 
 function IssueCard({ issue }: { issue: LinearIssue }) {
+  const navigate = useNavigate();
   const priority = issue.priority ? PRIORITY_LABELS[issue.priority] : null;
 
+  const handleCardClick = () => {
+    navigate(`/tasks/${issue.identifier}`);
+  };
+
   return (
-    <Card className="hover:shadow-md transition-shadow">
+    <Card
+      className="hover:shadow-md transition-shadow cursor-pointer"
+      isPressable
+      onPress={handleCardClick}
+    >
       <CardBody className="gap-2">
         <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0 flex-wrap">
             <Chip size="sm" variant="flat" color="primary" className="shrink-0">
               {issue.identifier}
             </Chip>
+            {issue.state && (
+              <Chip size="sm" variant="bordered" className="shrink-0">
+                {issue.state}
+              </Chip>
+            )}
             <span className="font-medium text-sm truncate">{issue.title}</span>
           </div>
           {priority && (
@@ -43,13 +58,13 @@ function IssueCard({ issue }: { issue: LinearIssue }) {
           )}
         </div>
         <div className="flex items-center gap-3 text-xs text-default-500">
-          {issue.state && <span>{issue.state}</span>}
           <Link
             href={issue.url}
             isExternal
             showAnchorIcon
             size="sm"
             className="text-xs"
+            onClick={(e) => e.stopPropagation()}
           >
             Open in Linear
           </Link>

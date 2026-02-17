@@ -1,4 +1,4 @@
-import { Chip } from '@heroui/react';
+import { Chip } from '../common/Chip';
 import { formatCost } from '../../utils/formatting';
 
 interface SessionStatsProps {
