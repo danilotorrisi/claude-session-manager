@@ -30,3 +30,8 @@ bun.lock
 # CSM local metadata (session-specific)
 .csm-metadata.json
 .claude/
+
+# Data files
+*.xlsx
+*.xls
+*.csv
