@@ -34,7 +34,11 @@ Run a single test file: `bun test src/path/to/file.test.ts`
    - `config.ts` — Config management at `~/.config/csm/config.json`
    - `ssh.ts` — Abstracts local vs remote command execution over SSH
    - `claude-state.ts` — Reads Claude Code session state from `/tmp/csm-claude-state/`
-   - `linear.ts` — Linear issue search API integration
+   - `linear.ts` — Linear issue search, comments (fetch + create)
+   - `tool-rules.ts` — Tool approval rule evaluation engine (glob pattern matching, first-match-wins)
+   - `event-store.ts` — Persistent JSONL event store for SSE replay (`~/.config/csm/events/`)
+   - `claude-usage.ts` — Claude usage tracking via OAuth credentials (file, macOS Keychain)
+   - `ws-session-manager.ts` — WebSocket session state management and event broadcasting
 
 3. **TUI layer** (`src/tui/`) — Interactive dashboard using React + Ink:
    - `App.tsx` — Root component with `useReducer` state management
@@ -43,7 +47,13 @@ Run a single test file: `bun test src/path/to/file.test.ts`
    - `hooks/useSessions.ts` — Session fetching with 5-second auto-refresh
    - `theme.ts` — Centralized color/styling constants
 
-**State management:** TUI uses `useReducer` with actions (`SET_VIEW`, `SET_SESSIONS`, `SET_LOADING`, `SET_ERROR`, `SET_MESSAGE`). Views: `"dashboard"` | `"create"` | `"detail"`.
+4. **Web layer** (`src/web/`) — React web dashboard (HeroUI + Vite):
+   - `router.tsx` — React Router configuration
+   - Views: `Dashboard`, `SessionDetail`, `CreateSession`, `TasksView`, `TaskDetailView`, `ToolRulesView`, `SettingsView`, `ProjectsView`, `HostsView`
+   - Components: layout (`Header`, `Footer`, `Sidebar`), session (`SessionCard`, `SessionTable`, `GitChanges`, `FavoriteButton`), messaging (`ClaudeView`, `LogViewer`, `MessageInput`), tools (`ToolApprovalModal`, `ToolApprovalBanner`), common (`Chip`, `StatusBadge`)
+   - Hooks: `useSessionStream` (WebSocket streaming), `useToolApprovals`, `useClaudeUsage`, `useLinearTasks`
+
+**State management:** TUI uses `useReducer` with actions (`SET_VIEW`, `SET_SESSIONS`, `SET_LOADING`, `SET_ERROR`, `SET_MESSAGE`). Views: `"dashboard"` | `"create"` | `"detail"`. Web uses TanStack Query for server state and Zustand for client state (favorites).
 
 **Path alias:** `@/*` maps to `src/*` (configured in tsconfig.json).
 

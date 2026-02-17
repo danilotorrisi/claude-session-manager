@@ -5,32 +5,50 @@ All notable changes to Claude Session Manager (CSM) are documented here.
 ## 1.4.0
 
 ### Added
+- **React web dashboard** — Full browser-based UI with session management, streaming logs, and tool approval modals (HeroUI + TanStack Query + React Router + Tailwind CSS)
 - **WebSocket integration** — Real-time session state via Claude Code's `--sdk-url` flag (4-phase implementation)
 - **Live TUI updates** — Real-time session status, streaming logs, and tool approval UI without polling delays
+- **Tool approval rules engine** — Configurable allow/deny/ask rules per tool with glob pattern matching (`tool-rules.ts`). Rules evaluated in order, first match wins
+- **"Always Allow/Deny" in tool modal** — One-click rule creation from the tool approval dialog, auto-deriving patterns from the current request
+- **Tool Rules management view** — Dedicated page to add, edit, delete, and reorder tool approval rules
+- **Claude usage tracking** — Real-time session/weekly/Sonnet usage bars with pace indicators in the dashboard footer. Reads OAuth credentials from file, macOS Keychain (CodexBar + Claude Code)
+- **Event persistence** — Session events stored as JSONL files (`~/.config/csm/events/`) for SSE replay across server restarts, with automatic compaction at 500 events
+- **Linear comments** — Fetch and create comments on Linear issues from the task detail view with markdown rendering
+- **Task detail view** — Full Linear issue view with description, metadata, and threaded comments
+- **Session reconnect** — Restart Claude Code with `--sdk-url` and `--continue` on disconnected sessions via API and UI
 - **Tool approval interface** — Interactive y/n keybindings for approving/denying tool use in SessionDetail view
 - **Dashboard notifications** — Alert bar for pending tool approvals with Space key navigation
-- **HTTP API for external clients** — Four new endpoints for OpenClaw and future web UIs:
+- **HTTP API for external clients** — Endpoints for OpenClaw and web UIs:
   - `GET /api/sessions` — List sessions with merged WebSocket state
   - `POST /api/sessions/:name/message` — Send prompts to sessions
   - `GET /api/sessions/:name/stream` — Server-Sent Events for real-time updates
   - `POST /api/sessions/:name/approve-tool` — Approve/deny tool use requests
+  - `PATCH /api/config` — Update Linear API key and tool rules
+  - `POST /api/config/rules` — Append a tool approval rule
+  - `GET /api/claude-usage` — Claude usage limits and utilization
 - **Streaming output display** — Per-session streaming logs with color-coded event types
 - **WebSocket-first message routing** — Automatic WebSocket delivery with tmux fallback
 - **Reduced polling** — TUI polling reduced from 1s to 5s (80% reduction in background requests)
 - **Event-driven refresh** — Immediate TUI updates on session connect/disconnect/status changes
+- **Favorites** — Star/unstar sessions for quick access with persistent state (Zustand store)
+- **Settings view** — Manage Linear API key from the web dashboard
+- **WebSearch formatting** — Stream viewer now formats `WebSearch` tool events
+
+### Changed
+- **Tool allow/deny lists refactored** — Extracted hardcoded allow/deny lists from `tmux.ts` into configurable `toolApprovalRules` in config, evaluated by the rule engine
+- **WebSocket stream improvements** — Reset entries on reconnect to avoid duplicates, added `isWorking` state tracking, support for `tool_auto_approved` and `tool_auto_denied` event types
+- **Claude state chips** — Improved status display: "Waiting" instead of "Waiting for input", proper Attached/Detached states with dot indicators
+- **Footer layout** — Responsive footer with usage bars and keyboard shortcut hints
 
 ### Removed
 - **PM (Project Manager) system** — Removed `session-pm.ts`, `pm-session.ts`, `pm-state.ts`, PM routes, PM commands, PM TUI views, and all associated tests. PM functionality has been deprecated in favor of direct session management.
 
 ### Technical Details
-- Phase 1: WebSocket server + session state management (30 tests)
-- Phase 2: Session creation with `--sdk-url` flag (22 tests)
-- Phase 3: TUI hooks integration (36 tests)
-- Phase 4: HTTP API endpoints (24 tests)
-
-### Documentation
-- Added `CSM_WEBSOCKET_PLAN.md` — Complete 4-phase implementation plan
-- Added `PROGRESS_WEBSOCKET.md` — Phase-by-phase progress tracking and verification
+- WebSocket: Phase 1 (server + state), Phase 2 (session creation), Phase 3 (TUI hooks), Phase 4 (HTTP API)
+- New core modules: `tool-rules.ts` (rule engine), `event-store.ts` (JSONL persistence), `claude-usage.ts` (OAuth + usage API)
+- New web views: `ToolRulesView`, `TaskDetailView`, `SettingsView` (expanded)
+- New web components: `Chip`, `FavoriteButton`
+- New hooks: `useClaudeUsage`, expanded `useLinearTasks` (issue detail, comments, create comment)
 
 ## 1.3.0
 
